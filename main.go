@@ -17,6 +17,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"strings"
 
 	ui "github.com/gizak/termui/v3"
 	"github.com/gizak/termui/v3/widgets"
@@ -43,7 +44,6 @@ func run(tree *AVLTree) {
 	inputPara := widgets.NewParagraph()
 	inputPara.Title = " Type Command "
 	inputPara.Text = ""
-	inputPara.SetRect(0, 0, 100, 3) // x1, y1, x2, y2
 
 	// List to show matching results
 	suggestionList := widgets.NewList()
@@ -51,20 +51,32 @@ func run(tree *AVLTree) {
 	suggestionList.Rows = []string{}
 	suggestionList.SelectedRow = 0
 	suggestionList.SelectedRowStyle = ui.NewStyle(ui.ColorBlack, ui.ColorGreen)
-	suggestionList.SetRect(0, 3, 100, 15)
 
 	// Create a widget to show help text of a command
-	helpPara := widgets.NewParagraph()
-	helpPara.Title = " Help Text "
-	helpPara.Text = "Press <F1> or <fn + 1> for help on the selected command."
-	// Position it on the right side or below the existing widgets
-	helpPara.SetRect(105, 3, 200, 15)
-	helpPara.BorderStyle = ui.NewStyle(ui.ColorCyan)
+	helpList := widgets.NewList()
+	helpList.Title = " Help Text "
+	helpList.Rows = []string{"Press <F1> or <fn + 1> for help on the selected command."}
+	helpList.SelectedRow = 0
+	helpList.SelectedRowStyle = ui.NewStyle(ui.ColorBlack, ui.ColorYellow)
+	helpList.BorderStyle = ui.NewStyle(ui.ColorCyan)
+
+	// === Layout with Grid ===
+	grid := ui.NewGrid()
+	termWidth, termHeight := ui.TerminalDimensions()
+	grid.SetRect(0, 0, termWidth, termHeight)
+
+	// We create 1 row with 2 columns: 40% for suggestions, 60% for help
+	grid.Set(
+		ui.NewRow(1.0,
+			ui.NewCol(0.4, ui.NewRow(0.2, inputPara), ui.NewRow(0.8, suggestionList)),
+			ui.NewCol(0.6, helpList),
+		),
+	)
 
 	// 4. Render initial UI
-	ui.Render(inputPara, suggestionList, helpPara)
+	ui.Render(grid)
 
-	// 5. Main event loop
+	focusOnHelp := false
 	uiEvents := ui.PollEvents()
 	inputBuffer := "" // We'll store typed characters here
 	selectedIndex := 0
@@ -75,6 +87,9 @@ func run(tree *AVLTree) {
 		case "<C-c>", "<Escape>":
 			// Ctrl-C or Escape to exit
 			return
+		case "<Tab>", "<Shift>":
+			// CHANGED: Press Tab or Shift to toggle focus
+			focusOnHelp = !focusOnHelp
 		case "<Backspace>":
 			// Remove the last character from input
 			if len(inputBuffer) > 0 {
@@ -108,15 +123,29 @@ func run(tree *AVLTree) {
 				os.Exit(0)
 			}
 		case "<Up>":
-			// Move selection up
-			if selectedIndex > 0 {
-				selectedIndex--
+			if focusOnHelp {
+				// Scroll helpList up
+				if helpList.SelectedRow > 0 {
+					helpList.SelectedRow--
+				}
+			} else {
+				// Move selection up in suggestionList
+				if selectedIndex > 0 {
+					selectedIndex--
+				}
 			}
 
 		case "<Down>":
-			// Move selection down
-			if selectedIndex < len(suggestionList.Rows)-1 {
-				selectedIndex++
+			if focusOnHelp {
+				// Scroll helpList down
+				if helpList.SelectedRow < len(helpList.Rows)-1 {
+					helpList.SelectedRow++
+				}
+			} else {
+				// Move selection down in suggestionList
+				if selectedIndex < len(suggestionList.Rows)-1 {
+					selectedIndex++
+				}
 			}
 		case "<F1>":
 			// Fetch help for the highlighted command
@@ -125,13 +154,12 @@ func run(tree *AVLTree) {
 
 				helpText, err := getCommandHelp(extractCommandName(selectedCmd))
 				if err != nil {
-					helpPara.Text = "Relax and take a deep breath. " + err.Error()
+					helpList.Rows = []string{"Relax and take a deep breath.", err.Error()}
 				} else {
-					helpPara.Text = helpText
+					helpList.Rows = strings.Split(helpText, "\n")
 				}
-
 				// Re-render the help widget (along with others)
-				ui.Render(inputPara, suggestionList, helpPara)
+				ui.Render(grid)
 			}
 		case "<Resize>":
 			// If you need to handle resizing, do so here
@@ -163,6 +191,6 @@ func run(tree *AVLTree) {
 		suggestionList.SelectedRow = selectedIndex
 
 		// Re-render all widgets
-		ui.Render(inputPara, suggestionList)
+		ui.Render(grid)
 	}
 }
