@@ -1,6 +1,21 @@
 // avl_tree.go
 
+/**
+ * Copyright (C) Naren Yellavula - All Rights Reserved
+ *
+ * This source code is protected under international copyright law.  All rights
+ * reserved and protected by the copyright holders.
+ * This file is confidential and only available to authorized individuals with the
+ * permission of the copyright holders.  If you encounter this file and do not have
+ * permission, please contact the copyright holders and delete this file.
+ */
+
 package main
+
+import (
+	"sort"
+	"time"
+)
 
 type AVLNode struct {
 	Key    string      // Command (e.g., "echo Hello, World!")
@@ -8,6 +23,13 @@ type AVLNode struct {
 	Height int
 	Left   *AVLNode
 	Right  *AVLNode
+}
+
+type AVLTreeIFace interface {
+	Insert(key string, value interface{})
+	Delete(key string)
+	Search(key string) (interface{}, bool)
+	SearchPrefix(prefix string) []*AVLNode
 }
 
 type AVLTree struct {
@@ -77,18 +99,18 @@ func (tree *AVLTree) rotateRight(node *AVLNode) *AVLNode {
 }
 
 func (tree *AVLTree) Insert(key string, value interface{}) {
-	tree.Root = tree._insert(tree.Root, key, value)
+	tree.Root = tree.insertRecursive(tree.Root, key, value)
 }
 
-func (tree *AVLTree) _insert(node *AVLNode, key string, value interface{}) *AVLNode {
+func (tree *AVLTree) insertRecursive(node *AVLNode, key string, value interface{}) *AVLNode {
 	if node == nil {
 		return &AVLNode{Key: key, Value: value, Height: 1}
 	}
 
 	if key < node.Key {
-		node.Left = tree._insert(node.Left, key, value)
+		node.Left = tree.insertRecursive(node.Left, key, value)
 	} else if key > node.Key {
-		node.Right = tree._insert(node.Right, key, value)
+		node.Right = tree.insertRecursive(node.Right, key, value)
 	} else {
 		// Handle duplicate keys (e.g., update value)
 	}
@@ -118,18 +140,18 @@ func (tree *AVLTree) _insert(node *AVLNode, key string, value interface{}) *AVLN
 }
 
 func (tree *AVLTree) Delete(key string) {
-	tree.Root = tree._deleteRecursive(tree.Root, key)
+	tree.Root = tree.deleteRecursive(tree.Root, key)
 }
 
-func (tree *AVLTree) _deleteRecursive(node *AVLNode, key string) *AVLNode {
+func (tree *AVLTree) deleteRecursive(node *AVLNode, key string) *AVLNode {
 	if node == nil {
 		return nil // Key not found
 	}
 
 	if key < node.Key {
-		node.Left = tree._deleteRecursive(node.Left, key)
+		node.Left = tree.deleteRecursive(node.Left, key)
 	} else if key > node.Key {
-		node.Right = tree._deleteRecursive(node.Right, key)
+		node.Right = tree.deleteRecursive(node.Right, key)
 	} else { // Found the node to delete
 		// Case 1: No children
 		if node.Left == nil && node.Right == nil {
@@ -147,7 +169,7 @@ func (tree *AVLTree) _deleteRecursive(node *AVLNode, key string) *AVLNode {
 		pivot := tree.findMin(node.Right) // Find the minimum in the right subtree
 		node.Key = pivot.Key
 		node.Value = pivot.Value
-		node.Right = tree._deleteRecursive(node.Right, pivot.Key)
+		node.Right = tree.deleteRecursive(node.Right, pivot.Key)
 	}
 
 	// Update height and balance factor after deletion
@@ -186,4 +208,100 @@ func (tree *AVLTree) rebalance(node *AVLNode) *AVLNode {
 	}
 
 	return node
+}
+
+// Search looks for the node with the given key in the AVL tree.
+// It returns the value if found, and a boolean indicating whether the key was found.
+func (tree *AVLTree) Search(key string) (interface{}, bool) {
+	return searchNode(tree.Root, key)
+}
+
+// searchNode is a helper function that traverses the AVL tree recursively.
+func searchNode(node *AVLNode, key string) (interface{}, bool) {
+	if node == nil {
+		return nil, false
+	}
+
+	if key < node.Key {
+		return searchNode(node.Left, key)
+	} else if key > node.Key {
+		return searchNode(node.Right, key)
+	} else {
+		// key == node.Key
+		return node.Value, true
+	}
+}
+
+// rangeSearch traverses the subtree rooted at 'node' and appends to 'results'
+// every node whose Key satisfies low <= Key < high, in ascending (lexicographical) order.
+func rangeSearch(node *AVLNode, low, high string, results *[]*AVLNode) {
+	if node == nil {
+		return
+	}
+
+	// If node.Key can still be >= low, we must check the left subtree
+	if node.Key >= low {
+		rangeSearch(node.Left, low, high, results)
+	}
+
+	// If node.Key is actually in [low, high), collect it
+	if node.Key >= low && node.Key < high {
+		*results = append(*results, node)
+	}
+
+	// If node.Key is still < high, we must check the right subtree
+	if node.Key < high {
+		rangeSearch(node.Right, low, high, results)
+	}
+}
+
+func (tree *AVLTree) SearchPrefix(prefix string) []*AVLNode {
+	var results []*AVLNode
+	// Construct high bound as prefix + "\uffff"
+	high := prefix + "\uffff"
+
+	rangeSearch(tree.Root, prefix, high, &results)
+	return results
+}
+
+func (tree *AVLTree) SearchPrefixMostRecent(prefix string) []*AVLNode {
+	// 1. Gather prefix matches (keys in [prefix, prefix+"\uffff"))
+	matches := tree.SearchPrefix(prefix)
+
+	sort.Slice(matches, func(i, j int) bool {
+		// Type assert both sides to *time.Time
+		t1, ok1 := matches[i].Value.(*time.Time)
+		t2, ok2 := matches[j].Value.(*time.Time)
+
+		// Handle unexpected types or nil values gracefully:
+		if !ok1 && !ok2 {
+			// If both are not times, treat them as equal
+			return false
+		}
+		if !ok1 {
+			// Non-time goes after time
+			return false
+		}
+		if !ok2 {
+			// Time goes before non-time
+			return true
+		}
+		if t1 == nil && t2 == nil {
+			return false
+		}
+		if t1 == nil {
+			// nil is considered older
+			return false
+		}
+		if t2 == nil {
+			// non-nil is considered newer
+			return true
+		}
+
+		// Now both t1, t2 are non-nil *time.Time
+		// Return true if t1 is after t2 => t1 is more recent
+		return t1.After(*t2)
+	})
+
+	return matches
 }
