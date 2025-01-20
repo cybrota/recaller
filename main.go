@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	ui "github.com/gizak/termui/v3"
 	"github.com/gizak/termui/v3/widgets"
@@ -40,12 +41,59 @@ func DisableMouseInput() {
 	tb.SetInputMode(tb.InputEsc)
 }
 
+// getBanner creates a datetime message
+func getBanner(t time.Time) string {
+	d := DaysToWeekend()
+	msg := ""
+
+	if d == 0 {
+		msg = "Enjoy your weekend!"
+	} else {
+		msg = fmt.Sprintf("%d days to Weekend! 🌴", d)
+	}
+	return fmt.Sprintf("%s. %s", FormatDateTime(t), msg)
+}
+
+// getPaddedQuote adds before and after padding to a quote
+func getPaddedQuote(quote string) string {
+	return " " + quote + " "
+}
+
+func repaintHelpWidget(g *ui.Grid, l *widgets.List, cmd string) {
+	help, err := splitCommand(cmd)
+	if err != nil {
+		log.Fatalf("Cannot repaint the widget due to: %v", err)
+	}
+
+	helpText, err := getCommandHelp(help)
+	if err != nil {
+		l.Rows = []string{"Relax and take a deep breath.", err.Error()}
+	} else {
+		l.Rows = strings.Split(helpText, "\n")
+	}
+	// Re-render the help widget (along with others)
+	ui.Render(g)
+}
+
 func run(tree *AVLTree) {
+	// Done channel for ticker
+	done := make(chan bool)
+
 	if err := ui.Init(); err != nil {
 		log.Fatalf("failed to initialize termui: %v", err)
 	}
 	DisableMouseInput()
 	defer ui.Close()
+
+	datetimeRowList := widgets.NewList()
+	datetimeRowList.Title = "Today"
+	datetimeRowList.Rows = []string{
+		getBanner(time.Now()),
+		"",
+		getPaddedQuote(GetRandomQuote()),
+	}
+	datetimeRowList.SelectedRow = 2
+	datetimeRowList.SelectedRowStyle = ui.NewStyle(ui.ColorBlack, ui.ColorBlue)
 
 	// 1. Create the input paragraph
 	inputPara := widgets.NewParagraph()
@@ -75,8 +123,8 @@ func run(tree *AVLTree) {
 	// We create 1 row with 2 columns: 40% for suggestions, 60% for help
 	grid.Set(
 		ui.NewRow(1.0,
-			ui.NewCol(0.4, ui.NewRow(0.2, inputPara), ui.NewRow(0.8, suggestionList)),
-			ui.NewCol(0.6, helpList),
+			ui.NewCol(0.4, ui.NewRow(0.1, inputPara), ui.NewRow(0.9, suggestionList)),
+			ui.NewCol(0.6, ui.NewRow(0.10, datetimeRowList), ui.NewRow(0.90, helpList)),
 		),
 	)
 
@@ -88,11 +136,30 @@ func run(tree *AVLTree) {
 	inputBuffer := "" // We'll store typed characters here
 	selectedIndex := 0
 
+	dateTi := time.NewTicker(1 * time.Second)
+	quoteTi := time.NewTicker(60 * time.Second)
+
+	// Start a ticker to update clock on the app
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			case t, _ := <-dateTi.C:
+				datetimeRowList.Rows[0] = getBanner(t)
+				ui.Render(datetimeRowList)
+			case <-quoteTi.C:
+				datetimeRowList.Rows[2] = getPaddedQuote(GetRandomQuote())
+			}
+		}
+	}()
+
 	for {
 		e := <-uiEvents
 		switch e.ID {
 		case "<C-c>", "<Escape>":
 			// Ctrl-C or Escape to exit
+			done <- true
 			return
 		case "<Tab>", "<Shift>":
 			// CHANGED: Press Tab or Shift to toggle focus
@@ -139,6 +206,8 @@ func run(tree *AVLTree) {
 				// Move selection up in suggestionList
 				if selectedIndex > 0 {
 					selectedIndex--
+					selectedCmd := suggestionList.Rows[selectedIndex]
+					repaintHelpWidget(grid, helpList, selectedCmd)
 				}
 			}
 		case "<Down>":
@@ -150,6 +219,8 @@ func run(tree *AVLTree) {
 				// Move selection down in suggestionList
 				if selectedIndex < len(suggestionList.Rows)-1 {
 					selectedIndex++
+					selectedCmd := suggestionList.Rows[selectedIndex]
+					repaintHelpWidget(grid, helpList, selectedCmd)
 				}
 			}
 		case "<PageUp>":
@@ -166,15 +237,7 @@ func run(tree *AVLTree) {
 			// Fetch help for the highlighted command
 			if len(suggestionList.Rows) > 0 {
 				selectedCmd := suggestionList.Rows[selectedIndex]
-
-				helpText, err := getCommandHelp(extractCommandName(selectedCmd))
-				if err != nil {
-					helpList.Rows = []string{"Relax and take a deep breath.", err.Error()}
-				} else {
-					helpList.Rows = strings.Split(helpText, "\n")
-				}
-				// Re-render the help widget (along with others)
-				ui.Render(grid)
+				repaintHelpWidget(grid, helpList, selectedCmd)
 			}
 		case "<Resize>":
 			// If you need to handle resizing, do so here

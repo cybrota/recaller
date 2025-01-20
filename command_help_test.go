@@ -19,7 +19,7 @@ import (
 
 func TestGetCommandHelp_ManPageAvailable(t *testing.T) {
 	cmdName := "ls" // Choose a command likely to have a man page
-	help, err := getCommandHelp(cmdName)
+	help, err := getCommandHelp(splitCommand(cmdName))
 	if err != nil {
 		t.Errorf("Unexpected error for %q: %v", cmdName, err)
 	}
@@ -31,7 +31,7 @@ func TestGetCommandHelp_ManPageAvailable(t *testing.T) {
 func TestGetCommandHelp_NoManPageButHasHelpFlag(t *testing.T) {
 	// Choose a command that doesn't have a man page but supports -h or --help
 	cmdName := "aws" // Replace with an actual command for testing
-	help, err := getCommandHelp(cmdName)
+	help, err := getCommandHelp(splitCommand(cmdName))
 	if err != nil && !strings.Contains(err.Error(), "no help found") {
 		t.Errorf("Unexpected error for %q: %v", cmdName, err)
 	}
@@ -42,7 +42,7 @@ func TestGetCommandHelp_NoManPageButHasHelpFlag(t *testing.T) {
 
 func TestGetCommandHelp_CommandDoesNotExist(t *testing.T) {
 	cmdName := "nonexistentcommand123"
-	_, err := getCommandHelp(cmdName)
+	_, err := getCommandHelp(splitCommand(cmdName))
 	if err == nil {
 		t.Errorf("Expected error for nonexistent command %q, got nil", cmdName)
 	}
@@ -50,7 +50,7 @@ func TestGetCommandHelp_CommandDoesNotExist(t *testing.T) {
 
 func TestExtractCommandName_EmptyString(t *testing.T) {
 	fullCmd := ""
-	name := extractCommandName(fullCmd)
+	name := extractCommandName(splitCommand(cmdName))
 	if name != "" {
 		t.Errorf("Expected empty string for command name, got: %q", name)
 	}

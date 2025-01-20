@@ -14,29 +14,101 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
 	"strings"
+
+	"github.com/mattn/go-shellwords"
 )
 
-// getCommandHelp attempts to retrieve help text for cmdName.
-// 1) Checks if there is a man page via "man -w cmdName".
-// 2) If no man page is found, tries "cmdName -h".
-// 3) If that fails, tries "cmdName --help".
-// Returns the help text or an error if none of the above produce results.
+// getCommandHelp attempts to retrieve help text for a given command.
+// For git commands, if the base command is "git" and a subcommand is provided,
+// it adjusts the arguments accordingly.
+func getCommandHelp(cmdParts []string) (string, error) {
+	if len(cmdParts) == 0 {
+		return "", fmt.Errorf("no command provided")
+	}
 
-func getCommandHelp(cmdName string) (string, error) {
-	// 1) Check if there's a man page via "man -w cmdName".
-	checkMan := exec.Command("man", "-w", cmdName)
+	baseCmd := cmdParts[0]
+
+	// Create the full command name for logging or man page lookup.
+	fullCmdName := strings.Join(cmdParts, " ")
+
+	// For Git commands (or other commands where help flags might conflict with file arguments),
+	// it's best to avoid passing file arguments.
+	// If the base command is "git" and there are additional elements, assume the first subcommand is the target.
+	// For example, given ["git", "add", "command_help.go", "main.go"], we discard file arguments when showing help.
+	if baseCmd == "git" && len(cmdParts) >= 2 {
+		// Extract the subcommand from Git.
+		gitSubCmd := cmdParts[1]
+		// Use "git help <subcommand>" instead.
+		helpCmd := exec.Command("git", "help", gitSubCmd)
+		out, err := helpCmd.Output()
+		if err == nil {
+			return string(out), nil
+		}
+		// Fall back to using help flags if "git help <subcommand>" fails.
+		// Try with "--help".
+		helpCmd = exec.Command("git", gitSubCmd, "--help")
+		out, err = helpCmd.Output()
+		if err == nil {
+			return string(out), nil
+		}
+		// Lastly, try with "-h".
+		helpCmd = exec.Command("git", gitSubCmd, "-h")
+		out, err = helpCmd.Output()
+		if err == nil {
+			return string(out), nil
+		}
+		return "", fmt.Errorf("failed to get help for command %q", fullCmdName)
+	}
+
+	// For Go commands
+	if baseCmd == "go" && len(cmdParts) >= 2 {
+		// Extract the subcommand from Go.
+		gitSubCmd := cmdParts[1]
+		// Use "go help <subcommand>" instead.
+		helpCmd := exec.Command("go", "help", gitSubCmd)
+		out, err := helpCmd.Output()
+		if err == nil {
+			return string(out), nil
+		} else {
+			return "The selected command is invalid", nil
+		}
+	}
+
+	// For Kubectl commands
+	if baseCmd == "kubectl" && len(cmdParts) >= 2 {
+		// Extract the subcommand from Go.
+		gitSubCmd := cmdParts[1]
+		// Use "go help <subcommand>" instead.
+		helpCmd := exec.Command("kubectl", gitSubCmd, "--help")
+		out, err := helpCmd.Output()
+		if err == nil {
+			return string(out), nil
+		}
+	}
+
+	// For Rust commands
+	if baseCmd == "cargo" && len(cmdParts) >= 2 {
+		// Extract the subcommand from Go.
+		gitSubCmd := cmdParts[1]
+		// Use "go help <subcommand>" instead.
+		helpCmd := exec.Command("cargo", gitSubCmd, "--help")
+		out, err := helpCmd.Output()
+		if err == nil {
+			return string(out), nil
+		}
+	}
+
+	// Check for a man page using "man -w"
+	checkMan := exec.Command("man", "-w", baseCmd)
 	if err := checkMan.Run(); err == nil {
-		// Man page is available, so run "man cmdName" and pipe it through "col -b"
-		// to remove backspaces and overstriking.
-		manCmd := exec.Command("man", cmdName)
+		// If a man page is found, we run "man <fullCmdName>" and pipe it through "col -b"
+		manCmd := exec.Command("man", baseCmd)
 		colCmd := exec.Command("col", "-b")
-
-		// Pipe: manCmd.Stdout -> colCmd.Stdin
-		// Then capture colCmd.Stdout into a buffer.
 		r, w := io.Pipe()
 		manCmd.Stdout = w
 		colCmd.Stdin = r
@@ -44,62 +116,51 @@ func getCommandHelp(cmdName string) (string, error) {
 		var buf bytes.Buffer
 		colCmd.Stdout = &buf
 
-		// Start both commands.
 		if err := manCmd.Start(); err != nil {
 			return "", fmt.Errorf("failed to start man command: %v", err)
 		}
 		if err := colCmd.Start(); err != nil {
 			return "", fmt.Errorf("failed to start col command: %v", err)
 		}
-
-		// Wait for manCmd to finish, then close the writer so colCmd sees EOF.
 		if err := manCmd.Wait(); err != nil {
 			return "", fmt.Errorf("man command failed: %v", err)
 		}
 		if err := w.Close(); err != nil {
 			return "", fmt.Errorf("failed to close pipe to col: %v", err)
 		}
-
-		// Now wait for colCmd to finish, which will fill our buffer.
 		if err := colCmd.Wait(); err != nil {
 			return "", fmt.Errorf("col command failed: %v", err)
 		}
-
 		return buf.String(), nil
 	}
 
-	// 2) No man page found. Try "cmdName -h".
-	helpCmd := exec.Command(cmdName, "-h")
-	out, err := helpCmd.Output()
-	if err == nil {
-		return string(out), nil
+	// For non-Git commands or single-root commands, try help flags.
+	tryHelp := func(flag string) (string, error) {
+		args := append(cmdParts[1:], flag)
+		helpCmd := exec.Command(baseCmd, args...)
+		out, err := helpCmd.Output()
+		return string(out), err
 	}
 
-	// 3) If that fails, try "cmdName --help".
-	helpCmd = exec.Command(cmdName, "--help")
-	out, err = helpCmd.Output()
-	if err == nil {
-		return string(out), nil
+	if out, err := tryHelp("-h"); err == nil {
+		return out, nil
+	}
+	if out, err := tryHelp("--help"); err == nil {
+		return out, nil
+	}
+	if out, err := tryHelp("help"); err == nil {
+		return out, nil
 	}
 
-	// 4) No -h or --help options found. Try "cmdName help".
-	helpCmd = exec.Command(cmdName, "help")
-	out, err = helpCmd.Output()
-	if err == nil {
-		return string(out), nil
-	}
-
-	// Otherwise, we have no help text to display.
-	return "", fmt.Errorf("no help found for command %q", cmdName)
+	return "", fmt.Errorf("no help found for command %q", fullCmdName)
 }
 
 // extractCommandName fetches a command from full-command
-func extractCommandName(fullCmd string) string {
+func splitCommand(fullCmd string) ([]string, error) {
 	// Split on whitespace
-	parts := strings.Fields(fullCmd)
-	if len(parts) == 0 {
-		// No tokens at all (empty string, or just whitespace)
-		return ""
+	args, err := shellwords.Parse(fullCmd)
+	if err != nil {
+		errors.New(fmt.Sprintf("failed to parse command: %s", fullCmd))
 	}
-	return parts[0] // The command name
+	return args, nil
 }

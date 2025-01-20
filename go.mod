@@ -9,5 +9,6 @@ require (
 
 require (
 	github.com/mattn/go-runewidth v0.0.9 // indirect
+	github.com/mattn/go-shellwords v1.0.12 // indirect
 	github.com/mitchellh/go-wordwrap v0.0.0-20150314170334-ad45545899c7 // indirect
 )
