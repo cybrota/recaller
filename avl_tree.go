@@ -46,6 +46,7 @@ type AVLTreeIFace interface {
 	Search(key string) (interface{}, bool)
 	SearchPrefix(prefix string) []*AVLNode
 	SearchPrefixMostRecent(prefix string) []*AVLNode
+	SearchWithRanking(tree *AVLTree, query string) []RankedCommand
 }
 
 type AVLTree struct {

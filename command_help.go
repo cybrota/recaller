@@ -103,6 +103,18 @@ func getCommandHelp(cmdParts []string) (string, error) {
 		}
 	}
 
+	// For NPM commands
+	if baseCmd == "npm" && len(cmdParts) >= 2 {
+		// Extract the subcommand from Go.
+		gitSubCmd := cmdParts[1]
+		// Use "go help <subcommand>" instead.
+		helpCmd := exec.Command("npm", "help", gitSubCmd)
+		out, err := helpCmd.Output()
+		if err == nil {
+			return string(out), nil
+		}
+	}
+
 	// Check for a man page using "man -w"
 	checkMan := exec.Command("man", "-w", baseCmd)
 	if err := checkMan.Run(); err == nil {
