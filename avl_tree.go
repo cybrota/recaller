@@ -1,6 +1,21 @@
 // avl_tree.go
 
+/**
+ * Copyright (C) Naren Yellavula - All Rights Reserved
+ *
+ * This source code is protected under international copyright law.  All rights
+ * reserved and protected by the copyright holders.
+ * This file is confidential and only available to authorized individuals with the
+ * permission of the copyright holders.  If you encounter this file and do not have
+ * permission, please contact the copyright holders and delete this file.
+ */
+
 package main
+
+import (
+	"sort"
+	"time"
+)
 
 type AVLNode struct {
 	Key    string      // Command (e.g., "echo Hello, World!")
@@ -247,4 +262,46 @@ func (tree *AVLTree) SearchPrefix(prefix string) []*AVLNode {
 
 	rangeSearch(tree.Root, prefix, high, &results)
 	return results
+}
+
+func (tree *AVLTree) SearchPrefixMostRecent(prefix string) []*AVLNode {
+	// 1. Gather prefix matches (keys in [prefix, prefix+"\uffff"))
+	matches := tree.SearchPrefix(prefix)
+
+	sort.Slice(matches, func(i, j int) bool {
+		// Type assert both sides to *time.Time
+		t1, ok1 := matches[i].Value.(*time.Time)
+		t2, ok2 := matches[j].Value.(*time.Time)
+
+		// Handle unexpected types or nil values gracefully:
+		if !ok1 && !ok2 {
+			// If both are not times, treat them as equal
+			return false
+		}
+		if !ok1 {
+			// Non-time goes after time
+			return false
+		}
+		if !ok2 {
+			// Time goes before non-time
+			return true
+		}
+		if t1 == nil && t2 == nil {
+			return false
+		}
+		if t1 == nil {
+			// nil is considered older
+			return false
+		}
+		if t2 == nil {
+			// non-nil is considered newer
+			return true
+		}
+
+		// Now both t1, t2 are non-nil *time.Time
+		// Return true if t1 is after t2 => t1 is more recent
+		return t1.After(*t2)
+	})
+
+	return matches
 }
