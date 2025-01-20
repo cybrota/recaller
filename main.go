@@ -21,6 +21,7 @@ import (
 
 	ui "github.com/gizak/termui/v3"
 	"github.com/gizak/termui/v3/widgets"
+	tb "github.com/nsf/termbox-go"
 )
 
 func main() {
@@ -34,10 +35,16 @@ func main() {
 	// fmt.Println(res)
 }
 
+// DisableMouseInput in termbox-go. This should be called after ui.Init()
+func DisableMouseInput() {
+	tb.SetInputMode(tb.InputEsc)
+}
+
 func run(tree *AVLTree) {
 	if err := ui.Init(); err != nil {
 		log.Fatalf("failed to initialize termui: %v", err)
 	}
+	DisableMouseInput()
 	defer ui.Close()
 
 	// 1. Create the input paragraph
@@ -134,10 +141,8 @@ func run(tree *AVLTree) {
 					selectedIndex--
 				}
 			}
-
 		case "<Down>":
 			if focusOnHelp {
-				// Scroll helpList down
 				if helpList.SelectedRow < len(helpList.Rows)-1 {
 					helpList.SelectedRow++
 				}
@@ -146,6 +151,16 @@ func run(tree *AVLTree) {
 				if selectedIndex < len(suggestionList.Rows)-1 {
 					selectedIndex++
 				}
+			}
+		case "<PageUp>":
+			if focusOnHelp && len(helpList.Rows) > 0 {
+				// Jump to top of help list
+				helpList.SelectedRow = 0
+			}
+		case "<PageDown>":
+			if focusOnHelp && len(helpList.Rows) > 0 {
+				// Jump to bottom of help list
+				helpList.SelectedRow = len(helpList.Rows) - 1
 			}
 		case "<F1>":
 			// Fetch help for the highlighted command
