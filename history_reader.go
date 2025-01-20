@@ -166,7 +166,6 @@ func detectCurrentShell() (string, error) {
 	return currentShell, nil
 }
 
-// readHistoryAndPopulateTree reads existing history into memory as an AVL tree
 func readHistoryAndPopulateTree(tree *AVLTree) error {
 	s, err := detectCurrentShell()
 	if err != nil {
@@ -183,8 +182,27 @@ func readHistoryAndPopulateTree(tree *AVLTree) error {
 		log.Fatalf("Unknown shell: %s detected. Aborting.", s)
 	}
 
+	// Initialize a map to track command frequencies
+	freqMap := make(map[string]int)
+
 	for _, hist := range history {
-		tree.Insert(hist.Command, hist.Timestamp)
+		if hist.Timestamp != nil {
+			// Update frequency count
+			freq, exists := freqMap[hist.Command]
+			if exists {
+				freqMap[hist.Command] = freq + 1
+			} else {
+				freqMap[hist.Command] = 1
+			}
+
+			// Insert into AVL tree with updated metadata
+			metadata := CommandMetadata{
+				Command:   hist.Command,
+				Timestamp: hist.Timestamp,
+				Frequency: freqMap[hist.Command], // Use the updated frequency count
+			}
+			tree.Insert(hist.Command, metadata)
+		}
 	}
 
 	return nil

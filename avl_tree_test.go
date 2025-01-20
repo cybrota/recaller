@@ -1,5 +1,15 @@
 // avl_tree_test.go
 
+/**
+ * Copyright (C) Naren Yellavula - All Rights Reserved
+ *
+ * This source code is protected under international copyright law.  All rights
+ * reserved and protected by the copyright holders.
+ * This file is confidential and only available to authorized individuals with the
+ * permission of the copyright holders.  If you encounter this file and do not have
+ * permission, please contact the copyright holders and delete this file.
+ */
+
 package main
 
 import (
@@ -49,11 +59,11 @@ func TestAVLTreeOperations(t *testing.T) {
 			tree := NewAVLTree()
 			// Insert initial keys
 			for _, key := range tc.InitialKeys {
-				tree.Insert(key, nil)
+				tree.Insert(key, CommandMetadata{})
 			}
 			// Perform insert operations
 			for _, key := range tc.KeysToInsert {
-				tree.Insert(key, nil)
+				tree.Insert(key, CommandMetadata{})
 			}
 			// Perform delete operations
 			for _, key := range tc.KeysToDelete {

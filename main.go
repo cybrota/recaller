@@ -190,10 +190,10 @@ func run(tree *AVLTree) {
 		inputPara.Text = inputBuffer
 
 		// Perform a new prefix search whenever input changes (or arrows, etc.)
-		matches := tree.SearchPrefixMostRecent(inputBuffer)
+		matches := SearchWithRanking(tree, inputBuffer)
 		suggestionList.Rows = []string{}
 		for _, node := range matches {
-			suggestionList.Rows = append(suggestionList.Rows, node.Key)
+			suggestionList.Rows = append(suggestionList.Rows, fmt.Sprintf("%s", node.Command))
 		}
 
 		// Make sure the selectedIndex is still valid
