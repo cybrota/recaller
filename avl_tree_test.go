@@ -49,11 +49,11 @@ func TestAVLTreeOperations(t *testing.T) {
 			tree := NewAVLTree()
 			// Insert initial keys
 			for _, key := range tc.InitialKeys {
-				tree.Insert(key, nil)
+				tree.Insert(key, CommandMetadata{})
 			}
 			// Perform insert operations
 			for _, key := range tc.KeysToInsert {
-				tree.Insert(key, nil)
+				tree.Insert(key, CommandMetadata{})
 			}
 			// Perform delete operations
 			for _, key := range tc.KeysToDelete {

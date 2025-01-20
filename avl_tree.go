@@ -13,13 +13,28 @@
 package main
 
 import (
+	"errors"
+	"fmt"
+	"log"
 	"sort"
 	"time"
 )
 
+type CommandMetadata struct {
+	Command   string
+	Timestamp *time.Time // Unix timestamp for recency (updated on each use)
+	Frequency int        // Incremented on each command execution
+}
+
+type RankedCommand struct {
+	Command  string
+	Score    float64
+	Metadata CommandMetadata
+}
+
 type AVLNode struct {
-	Key    string      // Command (e.g., "echo Hello, World!")
-	Value  interface{} // Associated data (e.g., timestamp)
+	Key    string          // Command (e.g., "echo Hello, World!")
+	Value  CommandMetadata // Associated data (e.g., timestamp)
 	Height int
 	Left   *AVLNode
 	Right  *AVLNode
@@ -30,6 +45,7 @@ type AVLTreeIFace interface {
 	Delete(key string)
 	Search(key string) (interface{}, bool)
 	SearchPrefix(prefix string) []*AVLNode
+	SearchPrefixMostRecent(prefix string) []*AVLNode
 }
 
 type AVLTree struct {
@@ -98,11 +114,11 @@ func (tree *AVLTree) rotateRight(node *AVLNode) *AVLNode {
 	return pivot // Return the new root node
 }
 
-func (tree *AVLTree) Insert(key string, value interface{}) {
+func (tree *AVLTree) Insert(key string, value CommandMetadata) {
 	tree.Root = tree.insertRecursive(tree.Root, key, value)
 }
 
-func (tree *AVLTree) insertRecursive(node *AVLNode, key string, value interface{}) *AVLNode {
+func (tree *AVLTree) insertRecursive(node *AVLNode, key string, value CommandMetadata) *AVLNode {
 	if node == nil {
 		return &AVLNode{Key: key, Value: value, Height: 1}
 	}
@@ -270,22 +286,9 @@ func (tree *AVLTree) SearchPrefixMostRecent(prefix string) []*AVLNode {
 
 	sort.Slice(matches, func(i, j int) bool {
 		// Type assert both sides to *time.Time
-		t1, ok1 := matches[i].Value.(*time.Time)
-		t2, ok2 := matches[j].Value.(*time.Time)
+		t1 := matches[i].Value.Timestamp
+		t2 := matches[j].Value.Timestamp
 
-		// Handle unexpected types or nil values gracefully:
-		if !ok1 && !ok2 {
-			// If both are not times, treat them as equal
-			return false
-		}
-		if !ok1 {
-			// Non-time goes after time
-			return false
-		}
-		if !ok2 {
-			// Time goes before non-time
-			return true
-		}
 		if t1 == nil && t2 == nil {
 			return false
 		}
@@ -304,4 +307,60 @@ func (tree *AVLTree) SearchPrefixMostRecent(prefix string) []*AVLNode {
 	})
 
 	return matches
+}
+
+func calculateScore(metadata CommandMetadata) (float64, error) {
+	if metadata.Timestamp == nil {
+		fmt.Println(metadata)
+		return 0, errors.New("timestamp is nil, cannot calculate score")
+	}
+	now := time.Now()
+	// Calculate time delta in hours for scoring
+	timeDelta := now.Sub(*metadata.Timestamp).Hours()
+
+	// Score components:
+	// - Frequency: Linear, to encourage repeated commands
+	// - Recency (Time): Inverse exponential, to heavily favor recent commands
+	frequencyScore := float64(metadata.Frequency)
+	recencyScore := 1 / (timeDelta + 1) // Add 1 to avoid division by zero
+
+	// Combine scores with a simple weighted average (adjust weights as needed)
+	score := (0.6 * frequencyScore) + (0.4 * recencyScore)
+
+	return score, nil
+}
+
+func SearchWithRanking(tree *AVLTree, query string) []RankedCommand {
+	var rankedCommands []RankedCommand
+
+	// Traverse the tree to find matching commands (this part assumes a certain tree traversal method)
+	nodes := tree.SearchPrefix(query)
+	for _, node := range nodes {
+		command := node.Key
+		metadata := node.Value // Assert type
+
+		score, err := calculateScore(metadata)
+
+		if err != nil {
+			log.Fatalf("%s", err.Error())
+		}
+
+		rankedCommand := RankedCommand{
+			Command: command,
+			Score:   score,
+			Metadata: CommandMetadata{ // Optionally include metadata in the result
+				Timestamp: metadata.Timestamp,
+				Frequency: metadata.Frequency,
+			},
+		}
+
+		rankedCommands = append(rankedCommands, rankedCommand)
+	}
+
+	// Sort the commands based on their scores (Descending order for highest score first)
+	sort.SliceStable(rankedCommands, func(i, j int) bool {
+		return rankedCommands[i].Score > rankedCommands[j].Score
+	})
+
+	return rankedCommands
 }
