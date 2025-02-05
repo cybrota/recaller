@@ -23,14 +23,17 @@ import (
 	ui "github.com/gizak/termui/v3"
 	"github.com/gizak/termui/v3/widgets"
 	tb "github.com/nsf/termbox-go"
+	"github.com/patrickmn/go-cache"
 )
 
 func main() {
+	helpCache := cache.New(cache.DefaultExpiration, cache.DefaultExpiration)
+
 	tree := NewAVLTree()
 	if err := readHistoryAndPopulateTree(tree); err != nil {
 		log.Fatalf("Error reading history: %v", err)
 	}
-	run(tree)
+	run(tree, helpCache)
 	// res, _ := getCommandHelp("aws")
 
 	// fmt.Println(res)
@@ -59,23 +62,31 @@ func getPaddedQuote(quote string) string {
 	return " " + quote + " "
 }
 
-func repaintHelpWidget(g *ui.Grid, l *widgets.List, cmd string) {
+func repaintHelpWidget(g *ui.Grid, c *cache.Cache, l *widgets.List, cmd string) {
 	help, err := splitCommand(cmd)
 	if err != nil {
 		log.Fatalf("Cannot repaint the widget due to: %v", err)
 	}
 
-	helpText, err := getCommandHelp(help)
-	if err != nil {
-		l.Rows = []string{"Relax and take a deep breath.", err.Error()}
+	page := GetHelpPage(c, cmd)
+	var helpTxt string
+
+	if page == "" {
+		helpTxt, err = getCommandHelp(help)
+		if err != nil {
+			helpTxt = fmt.Sprintf("Relax and take a deep breath.\n%s", err.Error())
+		}
+		CacheHelpPage(c, cmd, helpTxt)
 	} else {
-		l.Rows = strings.Split(helpText, "\n")
+		helpTxt = page
 	}
+
+	l.Rows = strings.Split(helpTxt, "\n")
 	// Re-render the help widget (along with others)
 	ui.Render(g)
 }
 
-func run(tree *AVLTree) {
+func run(tree *AVLTree, hc *cache.Cache) {
 	// Done channel for ticker
 	done := make(chan bool)
 
@@ -207,7 +218,7 @@ func run(tree *AVLTree) {
 				if selectedIndex > 0 {
 					selectedIndex--
 					selectedCmd := suggestionList.Rows[selectedIndex]
-					repaintHelpWidget(grid, helpList, selectedCmd)
+					repaintHelpWidget(grid, hc, helpList, selectedCmd)
 				}
 			}
 		case "<Down>":
@@ -220,7 +231,7 @@ func run(tree *AVLTree) {
 				if selectedIndex < len(suggestionList.Rows)-1 {
 					selectedIndex++
 					selectedCmd := suggestionList.Rows[selectedIndex]
-					repaintHelpWidget(grid, helpList, selectedCmd)
+					repaintHelpWidget(grid, hc, helpList, selectedCmd)
 				}
 			}
 		case "<PageUp>":
@@ -237,7 +248,7 @@ func run(tree *AVLTree) {
 			// Fetch help for the highlighted command
 			if len(suggestionList.Rows) > 0 {
 				selectedCmd := suggestionList.Rows[selectedIndex]
-				repaintHelpWidget(grid, helpList, selectedCmd)
+				repaintHelpWidget(grid, hc, helpList, selectedCmd)
 			}
 		case "<Resize>":
 			// If you need to handle resizing, do so here

@@ -14,9 +14,9 @@ package main
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -24,134 +24,113 @@ import (
 )
 
 // getCommandHelp attempts to retrieve help text for a given command.
-// For git commands, if the base command is "git" and a subcommand is provided,
-// it adjusts the arguments accordingly.
+// It makes some adjustments for commands like git that use subcommands.
 func getCommandHelp(cmdParts []string) (string, error) {
 	if len(cmdParts) == 0 {
 		return "", fmt.Errorf("no command provided")
 	}
 
 	baseCmd := cmdParts[0]
-
-	// Create the full command name for logging or man page lookup.
 	fullCmdName := strings.Join(cmdParts, " ")
 
-	// For Git commands (or other commands where help flags might conflict with file arguments),
-	// it's best to avoid passing file arguments.
-	// If the base command is "git" and there are additional elements, assume the first subcommand is the target.
-	// For example, given ["git", "add", "command_help.go", "main.go"], we discard file arguments when showing help.
+	// Helper function to run a command and return its output.
+	runCmd := func(name string, args ...string) (string, error) {
+		cmd := exec.Command(name, args...)
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+
+	// Special handling for Git commands:
 	if baseCmd == "git" && len(cmdParts) >= 2 {
-		// Extract the subcommand from Git.
-		gitSubCmd := cmdParts[1]
-		// Use "git help <subcommand>" instead.
-		helpCmd := exec.Command("git", "help", gitSubCmd)
-		out, err := helpCmd.Output()
-		if err == nil {
+		subCmd := cmdParts[1]
+		// Try "git help <subcommand>" with GIT_PAGER=cat to force output.
+		helpCmd := exec.Command("git", "help", subCmd)
+		helpCmd.Env = append(os.Environ(), "GIT_PAGER=cat")
+		if out, err := helpCmd.CombinedOutput(); err == nil {
 			return string(out), nil
 		}
-		// Fall back to using help flags if "git help <subcommand>" fails.
-		// Try with "--help".
-		helpCmd = exec.Command("git", gitSubCmd, "--help")
-		out, err = helpCmd.Output()
-		if err == nil {
-			return string(out), nil
+		// Fallback: try "--help"
+		if out, err := runCmd("git", subCmd, "--help"); err == nil {
+			return out, nil
 		}
-		// Lastly, try with "-h".
-		helpCmd = exec.Command("git", gitSubCmd, "-h")
-		out, err = helpCmd.Output()
-		if err == nil {
-			return string(out), nil
+		// Fallback: try "-h"
+		if out, err := runCmd("git", subCmd, "-h"); err == nil {
+			return out, nil
 		}
 		return "", fmt.Errorf("failed to get help for command %q", fullCmdName)
 	}
 
-	// For Go commands
+	// Special handling for Go commands:
 	if baseCmd == "go" && len(cmdParts) >= 2 {
-		// Extract the subcommand from Go.
-		gitSubCmd := cmdParts[1]
-		// Use "go help <subcommand>" instead.
-		helpCmd := exec.Command("go", "help", gitSubCmd)
-		out, err := helpCmd.Output()
-		if err == nil {
-			return string(out), nil
-		} else {
-			return "The selected command is invalid", nil
+		subCmd := cmdParts[1]
+		if out, err := runCmd("go", "help", subCmd); err == nil {
+			return out, nil
 		}
+		return "The selected command is invalid", nil
 	}
 
-	// For Kubectl commands
+	// Special handling for kubectl commands:
 	if baseCmd == "kubectl" && len(cmdParts) >= 2 {
-		// Extract the subcommand from Go.
-		gitSubCmd := cmdParts[1]
-		// Use "go help <subcommand>" instead.
-		helpCmd := exec.Command("kubectl", gitSubCmd, "--help")
-		out, err := helpCmd.Output()
-		if err == nil {
-			return string(out), nil
+		subCmd := cmdParts[1]
+		if out, err := runCmd("kubectl", subCmd, "--help"); err == nil {
+			return out, nil
 		}
 	}
 
-	// For Rust commands
+	// Special handling for cargo commands:
 	if baseCmd == "cargo" && len(cmdParts) >= 2 {
-		// Extract the subcommand from Go.
-		gitSubCmd := cmdParts[1]
-		// Use "go help <subcommand>" instead.
-		helpCmd := exec.Command("cargo", gitSubCmd, "--help")
-		out, err := helpCmd.Output()
-		if err == nil {
-			return string(out), nil
+		subCmd := cmdParts[1]
+		if out, err := runCmd("cargo", subCmd, "--help"); err == nil {
+			return out, nil
 		}
 	}
 
-	// For NPM commands
+	// Special handling for npm commands:
 	if baseCmd == "npm" && len(cmdParts) >= 2 {
-		// Extract the subcommand from Go.
-		gitSubCmd := cmdParts[1]
-		// Use "go help <subcommand>" instead.
-		helpCmd := exec.Command("npm", "help", gitSubCmd)
-		out, err := helpCmd.Output()
-		if err == nil {
-			return string(out), nil
+		subCmd := cmdParts[1]
+		if out, err := runCmd("npm", "help", subCmd); err == nil {
+			return out, nil
 		}
 	}
 
-	// Check for a man page using "man -w"
-	checkMan := exec.Command("man", "-w", baseCmd)
-	if err := checkMan.Run(); err == nil {
-		// If a man page is found, we run "man <fullCmdName>" and pipe it through "col -b"
+	// Check if a man page exists using "man -w"
+	manCheck := exec.Command("man", "-w", baseCmd)
+	if err := manCheck.Run(); err == nil {
+		// Run "man <command>" and pipe it through "col -b" to remove backspaces.
 		manCmd := exec.Command("man", baseCmd)
 		colCmd := exec.Command("col", "-b")
-		r, w := io.Pipe()
-		manCmd.Stdout = w
-		colCmd.Stdin = r
+
+		// Pipe the output of manCmd into colCmd.
+		pipeReader, pipeWriter := io.Pipe()
+		manCmd.Stdout = pipeWriter
+		colCmd.Stdin = pipeReader
 
 		var buf bytes.Buffer
 		colCmd.Stdout = &buf
 
+		// Start both commands.
 		if err := manCmd.Start(); err != nil {
 			return "", fmt.Errorf("failed to start man command: %v", err)
 		}
 		if err := colCmd.Start(); err != nil {
 			return "", fmt.Errorf("failed to start col command: %v", err)
 		}
+		// Wait for the man command to finish, then close the writer.
 		if err := manCmd.Wait(); err != nil {
 			return "", fmt.Errorf("man command failed: %v", err)
 		}
-		if err := w.Close(); err != nil {
-			return "", fmt.Errorf("failed to close pipe to col: %v", err)
-		}
+		pipeWriter.Close()
+		// Wait for the col command to finish.
 		if err := colCmd.Wait(); err != nil {
 			return "", fmt.Errorf("col command failed: %v", err)
 		}
 		return buf.String(), nil
 	}
 
-	// For non-Git commands or single-root commands, try help flags.
+	// For other commands, try common help flags.
 	tryHelp := func(flag string) (string, error) {
 		args := append(cmdParts[1:], flag)
-		helpCmd := exec.Command(baseCmd, args...)
-		out, err := helpCmd.Output()
-		return string(out), err
+		return runCmd(baseCmd, args...)
 	}
 
 	if out, err := tryHelp("-h"); err == nil {
@@ -167,12 +146,11 @@ func getCommandHelp(cmdParts []string) (string, error) {
 	return "", fmt.Errorf("no help found for command %q", fullCmdName)
 }
 
-// extractCommandName fetches a command from full-command
+// splitCommand splits a full command string into parts.
 func splitCommand(fullCmd string) ([]string, error) {
-	// Split on whitespace
 	args, err := shellwords.Parse(fullCmd)
 	if err != nil {
-		errors.New(fmt.Sprintf("failed to parse command: %s", fullCmd))
+		return nil, fmt.Errorf("failed to parse command %q: %v", fullCmd, err)
 	}
 	return args, nil
 }
