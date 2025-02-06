@@ -86,6 +86,20 @@ func repaintHelpWidget(g *ui.Grid, c *cache.Cache, l *widgets.List, cmd string) 
 	ui.Render(g)
 }
 
+func execCommand(command string) {
+	cmd := exec.Command("sh", "-c", command)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	err := cmd.Run()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Command error:", err)
+		os.Exit(-1)
+	}
+	os.Exit(0)
+}
+
 func run(tree *AVLTree, hc *cache.Cache) {
 	// Done channel for ticker
 	done := make(chan bool)
@@ -184,28 +198,12 @@ func run(tree *AVLTree, hc *cache.Cache) {
 			// Specifically handle space
 			inputBuffer += " "
 		case "<Enter>":
+			ui.Close()
 			if len(suggestionList.Rows) > 0 {
 				selectedCommand := suggestionList.Rows[selectedIndex]
-
-				// 1. Close termui so the terminal is back to normal
-				ui.Close()
-
-				// 2. Launch the command in a “shell-like” environment
-				cmd := exec.Command("sh", "-c", selectedCommand)
-				// If you want actual Bash + history appends, use:
-				// cmd := exec.Command("bash", "-ic", selectedCommand+"; history -a")
-
-				// 3. Attach stdio so user sees output, usage, etc.
-				cmd.Stdin = os.Stdin
-				cmd.Stdout = os.Stdout
-				cmd.Stderr = os.Stderr
-
-				err := cmd.Run()
-				if err != nil {
-					fmt.Fprintln(os.Stderr, "Command error:", err)
-					os.Exit(-1)
-				}
-				os.Exit(0)
+				execCommand(selectedCommand)
+			} else {
+				execCommand(inputBuffer)
 			}
 		case "<Up>":
 			if focusOnHelp {
