@@ -16,30 +16,94 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/mattn/go-shellwords"
 )
 
-// getCommandHelp attempts to retrieve help text for cmdName.
-// 1) Checks if there is a man page via "man -w cmdName".
-// 2) If no man page is found, tries "cmdName -h".
-// 3) If that fails, tries "cmdName --help".
-// Returns the help text or an error if none of the above produce results.
+// getCommandHelp attempts to retrieve help text for a given command.
+// It makes some adjustments for commands like git that use subcommands.
+func getCommandHelp(cmdParts []string) (string, error) {
+	if len(cmdParts) == 0 {
+		return "", fmt.Errorf("no command provided")
+	}
 
-func getCommandHelp(cmdName string) (string, error) {
-	// 1) Check if there's a man page via "man -w cmdName".
-	checkMan := exec.Command("man", "-w", cmdName)
-	if err := checkMan.Run(); err == nil {
-		// Man page is available, so run "man cmdName" and pipe it through "col -b"
-		// to remove backspaces and overstriking.
-		manCmd := exec.Command("man", cmdName)
+	baseCmd := cmdParts[0]
+	fullCmdName := strings.Join(cmdParts, " ")
+
+	// Helper function to run a command and return its output.
+	runCmd := func(name string, args ...string) (string, error) {
+		cmd := exec.Command(name, args...)
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+
+	// Special handling for Git commands:
+	if baseCmd == "git" && len(cmdParts) >= 2 {
+		subCmd := cmdParts[1]
+		// Try "git help <subcommand>" with GIT_PAGER=cat to force output.
+		helpCmd := exec.Command("git", "help", subCmd)
+		helpCmd.Env = append(os.Environ(), "GIT_PAGER=cat")
+		if out, err := helpCmd.CombinedOutput(); err == nil {
+			return string(out), nil
+		}
+		// Fallback: try "--help"
+		if out, err := runCmd("git", subCmd, "--help"); err == nil {
+			return out, nil
+		}
+		// Fallback: try "-h"
+		if out, err := runCmd("git", subCmd, "-h"); err == nil {
+			return out, nil
+		}
+		return "", fmt.Errorf("failed to get help for command %q", fullCmdName)
+	}
+
+	// Special handling for Go commands:
+	if baseCmd == "go" && len(cmdParts) >= 2 {
+		subCmd := cmdParts[1]
+		if out, err := runCmd("go", "help", subCmd); err == nil {
+			return out, nil
+		}
+		return "The selected command is invalid", nil
+	}
+
+	// Special handling for kubectl commands:
+	if baseCmd == "kubectl" && len(cmdParts) >= 2 {
+		subCmd := cmdParts[1]
+		if out, err := runCmd("kubectl", subCmd, "--help"); err == nil {
+			return out, nil
+		}
+	}
+
+	// Special handling for cargo commands:
+	if baseCmd == "cargo" && len(cmdParts) >= 2 {
+		subCmd := cmdParts[1]
+		if out, err := runCmd("cargo", subCmd, "--help"); err == nil {
+			return out, nil
+		}
+	}
+
+	// Special handling for npm commands:
+	if baseCmd == "npm" && len(cmdParts) >= 2 {
+		subCmd := cmdParts[1]
+		if out, err := runCmd("npm", "help", subCmd); err == nil {
+			return out, nil
+		}
+	}
+
+	// Check if a man page exists using "man -w"
+	manCheck := exec.Command("man", "-w", baseCmd)
+	if err := manCheck.Run(); err == nil {
+		// Run "man <command>" and pipe it through "col -b" to remove backspaces.
+		manCmd := exec.Command("man", baseCmd)
 		colCmd := exec.Command("col", "-b")
 
-		// Pipe: manCmd.Stdout -> colCmd.Stdin
-		// Then capture colCmd.Stdout into a buffer.
-		r, w := io.Pipe()
-		manCmd.Stdout = w
-		colCmd.Stdin = r
+		// Pipe the output of manCmd into colCmd.
+		pipeReader, pipeWriter := io.Pipe()
+		manCmd.Stdout = pipeWriter
+		colCmd.Stdin = pipeReader
 
 		var buf bytes.Buffer
 		colCmd.Stdout = &buf
@@ -51,55 +115,42 @@ func getCommandHelp(cmdName string) (string, error) {
 		if err := colCmd.Start(); err != nil {
 			return "", fmt.Errorf("failed to start col command: %v", err)
 		}
-
-		// Wait for manCmd to finish, then close the writer so colCmd sees EOF.
+		// Wait for the man command to finish, then close the writer.
 		if err := manCmd.Wait(); err != nil {
 			return "", fmt.Errorf("man command failed: %v", err)
 		}
-		if err := w.Close(); err != nil {
-			return "", fmt.Errorf("failed to close pipe to col: %v", err)
-		}
-
-		// Now wait for colCmd to finish, which will fill our buffer.
+		pipeWriter.Close()
+		// Wait for the col command to finish.
 		if err := colCmd.Wait(); err != nil {
 			return "", fmt.Errorf("col command failed: %v", err)
 		}
-
 		return buf.String(), nil
 	}
 
-	// 2) No man page found. Try "cmdName -h".
-	helpCmd := exec.Command(cmdName, "-h")
-	out, err := helpCmd.Output()
-	if err == nil {
-		return string(out), nil
+	// For other commands, try common help flags.
+	tryHelp := func(flag string) (string, error) {
+		args := append(cmdParts[1:], flag)
+		return runCmd(baseCmd, args...)
 	}
 
-	// 3) If that fails, try "cmdName --help".
-	helpCmd = exec.Command(cmdName, "--help")
-	out, err = helpCmd.Output()
-	if err == nil {
-		return string(out), nil
+	if out, err := tryHelp("-h"); err == nil {
+		return out, nil
+	}
+	if out, err := tryHelp("--help"); err == nil {
+		return out, nil
+	}
+	if out, err := tryHelp("help"); err == nil {
+		return out, nil
 	}
 
-	// 4) No -h or --help options found. Try "cmdName help".
-	helpCmd = exec.Command(cmdName, "help")
-	out, err = helpCmd.Output()
-	if err == nil {
-		return string(out), nil
-	}
-
-	// Otherwise, we have no help text to display.
-	return "", fmt.Errorf("no help found for command %q", cmdName)
+	return "", fmt.Errorf("no help found for command %q", fullCmdName)
 }
 
-// extractCommandName fetches a command from full-command
-func extractCommandName(fullCmd string) string {
-	// Split on whitespace
-	parts := strings.Fields(fullCmd)
-	if len(parts) == 0 {
-		// No tokens at all (empty string, or just whitespace)
-		return ""
+// splitCommand splits a full command string into parts.
+func splitCommand(fullCmd string) ([]string, error) {
+	args, err := shellwords.Parse(fullCmd)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse command %q: %v", fullCmd, err)
 	}
-	return parts[0] // The command name
+	return args, nil
 }

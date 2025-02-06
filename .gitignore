@@ -1,3 +1,5 @@
 recall
 recaller
 main
+# Added by goreleaser init:
+dist/
