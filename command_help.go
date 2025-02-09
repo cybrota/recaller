@@ -1,7 +1,7 @@
 // command_help.go
 
 /**
- * Copyright (C) Naren Yellavula - All Rights Reserved
+ * Copyright 2025 (C) Naren Yellavula - All Rights Reserved
  *
  * This source code is protected under international copyright law.  All rights
  * reserved and protected by the copyright holders.
