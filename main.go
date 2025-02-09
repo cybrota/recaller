@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atotto/clipboard"
 	ui "github.com/gizak/termui/v3"
 	"github.com/gizak/termui/v3/widgets"
 	tb "github.com/nsf/termbox-go"
@@ -34,9 +35,6 @@ func main() {
 		log.Fatalf("Error reading history: %v", err)
 	}
 	run(tree, helpCache)
-	// res, _ := getCommandHelp("aws")
-
-	// fmt.Println(res)
 }
 
 // DisableMouseInput in termbox-go. This should be called after ui.Init()
@@ -65,7 +63,7 @@ func getPaddedQuote(quote string) string {
 func repaintHelpWidget(g *ui.Grid, c *cache.Cache, l *widgets.List, cmd string) {
 	help, err := splitCommand(cmd)
 	if err != nil {
-		log.Fatalf("Cannot repaint the widget due to: %v", err)
+		return
 	}
 
 	page := GetHelpPage(c, cmd)
@@ -127,7 +125,7 @@ func run(tree *AVLTree, hc *cache.Cache) {
 
 	// List to show matching results
 	suggestionList := widgets.NewList()
-	suggestionList.Title = " Recalled From History 🍔 "
+	suggestionList.Title = " Recalled From History 🍔 . Use <Shift> Key to toggle b/w history and help page. Press <Esc>/Ctrl+C to exit"
 	suggestionList.Rows = []string{}
 	suggestionList.SelectedRow = 0
 	suggestionList.SelectedRowStyle = ui.NewStyle(ui.ColorBlack, ui.ColorGreen)
@@ -186,6 +184,13 @@ func run(tree *AVLTree, hc *cache.Cache) {
 			// Ctrl-C or Escape to exit
 			done <- true
 			return
+		case "<C-z>":
+			selectedText := helpList.Rows[helpList.SelectedRow]
+			if err := clipboard.WriteAll(selectedText); err != nil {
+				log.Printf("Failed to copy text: %v", err)
+			} else {
+				log.Println("Text successfully copied to clipboard!")
+			}
 		case "<Tab>", "<Shift>":
 			// CHANGED: Press Tab or Shift to toggle focus
 			focusOnHelp = !focusOnHelp
@@ -232,12 +237,13 @@ func run(tree *AVLTree, hc *cache.Cache) {
 					repaintHelpWidget(grid, hc, helpList, selectedCmd)
 				}
 			}
-		case "<PageUp>":
+		case "<ShiftUp>":
+			fmt.Println(helpList.Rows)
 			if focusOnHelp && len(helpList.Rows) > 0 {
 				// Jump to top of help list
 				helpList.SelectedRow = 0
 			}
-		case "<PageDown>":
+		case "<ShiftDown>":
 			if focusOnHelp && len(helpList.Rows) > 0 {
 				// Jump to bottom of help list
 				helpList.SelectedRow = len(helpList.Rows) - 1
@@ -249,7 +255,8 @@ func run(tree *AVLTree, hc *cache.Cache) {
 				repaintHelpWidget(grid, hc, helpList, selectedCmd)
 			}
 		case "<Resize>":
-			// If you need to handle resizing, do so here
+			// Re-render all widgets
+			ui.Render(grid)
 		default:
 			// Typically a typed character
 			if e.Type == ui.KeyboardEvent && len(e.ID) == 1 {

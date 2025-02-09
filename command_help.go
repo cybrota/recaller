@@ -16,12 +16,71 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
 
 	"github.com/mattn/go-shellwords"
+	"golang.org/x/net/html"
 )
+
+// getGitCommandHelp fetches the Git documentation page for the given command
+// and returns the text content of the DOM element with ID "main".
+func getGitCommandHelp(command string) (string, error) {
+	// Construct the URL for the specific Git command.
+	url := fmt.Sprintf("https://git-scm.com/docs/git-%s", command)
+
+	// Send the HTTP GET request.
+	resp, err := http.Get(url)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch URL: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Ensure we received a successful response.
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("received non-200 response code: %d", resp.StatusCode)
+	}
+
+	// Parse the HTML document.
+	doc, err := html.Parse(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse HTML: %w", err)
+	}
+
+	// Find the element with ID "main".
+	mainNode := getElementByID(doc, "main")
+	if mainNode == nil {
+		return "", fmt.Errorf("element with id 'main' not found")
+	}
+
+	// Extract and return the text content.
+	content := extractText(mainNode)
+	return content, nil
+}
+
+// removeOverstrike removes the common overstrike pattern (a character followed by a backspace and then the same or another character) from a string.
+// Ex: N\bNA\bAM\bME\bE
+func removeOverstrike(input string) string {
+	runes := []rune(input)
+	var output []rune
+
+	for i := 0; i < len(runes); i++ {
+		// Check if the current rune is part of an overstrike sequence:
+		// it should have a following backspace and then another character.
+		if i+2 < len(runes) && runes[i+1] == '\b' {
+			// Instead of writing both, just append the character after the backspace.
+			// This effectively removes the overstrike.
+			output = append(output, runes[i+2])
+			i += 2 // Skip over the next two characters (backspace and the repeated character)
+		} else {
+			// Otherwise, just append the current rune.
+			output = append(output, runes[i])
+		}
+	}
+	return string(output)
+}
 
 // getCommandHelp attempts to retrieve help text for a given command.
 // It makes some adjustments for commands like git that use subcommands.
@@ -42,20 +101,12 @@ func getCommandHelp(cmdParts []string) (string, error) {
 
 	// Special handling for Git commands:
 	if baseCmd == "git" && len(cmdParts) >= 2 {
+
 		subCmd := cmdParts[1]
-		// Try "git help <subcommand>" with GIT_PAGER=cat to force output.
 		helpCmd := exec.Command("git", "help", subCmd)
 		helpCmd.Env = append(os.Environ(), "GIT_PAGER=cat")
 		if out, err := helpCmd.CombinedOutput(); err == nil {
-			return string(out), nil
-		}
-		// Fallback: try "--help"
-		if out, err := runCmd("git", subCmd, "--help"); err == nil {
-			return out, nil
-		}
-		// Fallback: try "-h"
-		if out, err := runCmd("git", subCmd, "-h"); err == nil {
-			return out, nil
+			return removeOverstrike(string(out)), nil
 		}
 		return "", fmt.Errorf("failed to get help for command %q", fullCmdName)
 	}
@@ -86,19 +137,26 @@ func getCommandHelp(cmdParts []string) (string, error) {
 	}
 
 	// Special handling for npm commands:
-	if baseCmd == "npm" && len(cmdParts) >= 2 {
+	if baseCmd == "npm" {
 		subCmd := cmdParts[1]
-		if out, err := runCmd("npm", "help", subCmd); err == nil {
-			return out, nil
+		if len(cmdParts) >= 2 {
+			if out, err := runCmd("npm", "help", subCmd); err == nil {
+				return removeOverstrike(out), nil
+			}
+		} else {
+			if out, err := runCmd("npm", subCmd); err == nil {
+				return removeOverstrike(out), nil
+			}
 		}
 	}
 
 	// Check if a man page exists using "man -w"
 	manCheck := exec.Command("man", "-w", baseCmd)
+
 	if err := manCheck.Run(); err == nil {
 		// Run "man <command>" and pipe it through "col -b" to remove backspaces.
-		manCmd := exec.Command("man", baseCmd)
-		colCmd := exec.Command("col", "-b")
+		manCmd := exec.Command("man", "-P", baseCmd)
+		colCmd := exec.Command("cat")
 
 		// Pipe the output of manCmd into colCmd.
 		pipeReader, pipeWriter := io.Pipe()
@@ -124,7 +182,7 @@ func getCommandHelp(cmdParts []string) (string, error) {
 		if err := colCmd.Wait(); err != nil {
 			return "", fmt.Errorf("col command failed: %v", err)
 		}
-		return buf.String(), nil
+		return removeOverstrike(buf.String()), nil
 	}
 
 	// For other commands, try common help flags.
@@ -150,7 +208,7 @@ func getCommandHelp(cmdParts []string) (string, error) {
 func splitCommand(fullCmd string) ([]string, error) {
 	args, err := shellwords.Parse(fullCmd)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse command %q: %v", fullCmd, err)
+		return nil, nil
 	}
 	return args, nil
 }
