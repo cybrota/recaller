@@ -15,50 +15,12 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"strings"
 
 	"github.com/mattn/go-shellwords"
-	"golang.org/x/net/html"
 )
-
-// getGitCommandHelp fetches the Git documentation page for the given command
-// and returns the text content of the DOM element with ID "main".
-func getGitCommandHelp(command string) (string, error) {
-	// Construct the URL for the specific Git command.
-	url := fmt.Sprintf("https://git-scm.com/docs/git-%s", command)
-
-	// Send the HTTP GET request.
-	resp, err := http.Get(url)
-	if err != nil {
-		return "", fmt.Errorf("failed to fetch URL: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Ensure we received a successful response.
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("received non-200 response code: %d", resp.StatusCode)
-	}
-
-	// Parse the HTML document.
-	doc, err := html.Parse(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse HTML: %w", err)
-	}
-
-	// Find the element with ID "main".
-	mainNode := getElementByID(doc, "main")
-	if mainNode == nil {
-		return "", fmt.Errorf("element with id 'main' not found")
-	}
-
-	// Extract and return the text content.
-	content := extractText(mainNode)
-	return content, nil
-}
 
 // removeOverstrike removes the common overstrike pattern (a character followed by a backspace and then the same or another character) from a string.
 // Ex: N\bNA\bAM\bME\bE
@@ -150,37 +112,32 @@ func getCommandHelp(cmdParts []string) (string, error) {
 		}
 	}
 
+	if baseCmd == "aws" {
+		if len(cmdParts) >= 2 {
+			subCmd := cmdParts[1]
+			if out, err := runCmd("aws", subCmd, "help"); err == nil {
+				return removeOverstrike(out), nil
+			}
+		} else {
+			return "", fmt.Errorf("Given AWS command is invalid")
+		}
+	}
+
 	// Check if a man page exists using "man -w"
 	manCheck := exec.Command("man", "-w", baseCmd)
-
 	if err := manCheck.Run(); err == nil {
-		// Run "man <command>" and pipe it through "col -b" to remove backspaces.
-		manCmd := exec.Command("man", "-P", baseCmd)
-		colCmd := exec.Command("cat")
-
-		// Pipe the output of manCmd into colCmd.
-		pipeReader, pipeWriter := io.Pipe()
-		manCmd.Stdout = pipeWriter
-		colCmd.Stdin = pipeReader
+		// Run "man <command>"
+		manCmd := exec.Command("man", baseCmd)
 
 		var buf bytes.Buffer
-		colCmd.Stdout = &buf
-
+		manCmd.Stdout = &buf
 		// Start both commands.
 		if err := manCmd.Start(); err != nil {
 			return "", fmt.Errorf("failed to start man command: %v", err)
 		}
-		if err := colCmd.Start(); err != nil {
-			return "", fmt.Errorf("failed to start col command: %v", err)
-		}
 		// Wait for the man command to finish, then close the writer.
 		if err := manCmd.Wait(); err != nil {
 			return "", fmt.Errorf("man command failed: %v", err)
-		}
-		pipeWriter.Close()
-		// Wait for the col command to finish.
-		if err := colCmd.Wait(); err != nil {
-			return "", fmt.Errorf("col command failed: %v", err)
 		}
 		return removeOverstrike(buf.String()), nil
 	}
