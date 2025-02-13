@@ -3,6 +3,7 @@ module github.com/cybrota/recaller
 go 1.22.5
 
 require (
+	github.com/atotto/clipboard v0.1.4
 	github.com/gizak/termui/v3 v3.1.0
 	github.com/mattn/go-shellwords v1.0.12
 	github.com/nsf/termbox-go v1.1.1

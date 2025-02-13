@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atotto/clipboard"
 	ui "github.com/gizak/termui/v3"
 	"github.com/gizak/termui/v3/widgets"
 	tb "github.com/nsf/termbox-go"
@@ -34,9 +35,6 @@ func main() {
 		log.Fatalf("Error reading history: %v", err)
 	}
 	run(tree, helpCache)
-	// res, _ := getCommandHelp("aws")
-
-	// fmt.Println(res)
 }
 
 // DisableMouseInput in termbox-go. This should be called after ui.Init()
@@ -50,7 +48,7 @@ func getBanner(t time.Time) string {
 	msg := ""
 
 	if d == 0 {
-		msg = "Enjoy your weekend!"
+		msg = "Enjoy your weekend! ☕"
 	} else {
 		msg = fmt.Sprintf("%d days to Weekend! 🌴", d)
 	}
@@ -62,10 +60,10 @@ func getPaddedQuote(quote string) string {
 	return " " + quote + " "
 }
 
-func repaintHelpWidget(g *ui.Grid, c *cache.Cache, l *widgets.List, cmd string) {
+func repaintHelpWidget(c *cache.Cache, l *widgets.List, cmd string) {
 	help, err := splitCommand(cmd)
 	if err != nil {
-		log.Fatalf("Cannot repaint the widget due to: %v", err)
+		return
 	}
 
 	page := GetHelpPage(c, cmd)
@@ -82,8 +80,6 @@ func repaintHelpWidget(g *ui.Grid, c *cache.Cache, l *widgets.List, cmd string) 
 	}
 
 	l.Rows = strings.Split(helpTxt, "\n")
-	// Re-render the help widget (along with others)
-	ui.Render(g)
 }
 
 func execCommand(command string) {
@@ -98,6 +94,17 @@ func execCommand(command string) {
 		os.Exit(-1)
 	}
 	os.Exit(0)
+}
+
+// toggleBorders toggles borders of given widgets b/w White & Cyan
+func toggleBorders(w1 *widgets.List, w2 *widgets.List) {
+	if w1.BorderStyle.Fg == ui.ColorCyan {
+		w1.BorderStyle = ui.NewStyle(ui.ColorWhite)
+		w2.BorderStyle = ui.NewStyle(ui.ColorCyan)
+	} else {
+		w1.BorderStyle = ui.NewStyle(ui.ColorCyan)
+		w2.BorderStyle = ui.NewStyle(ui.ColorWhite)
+	}
 }
 
 func run(tree *AVLTree, hc *cache.Cache) {
@@ -127,10 +134,11 @@ func run(tree *AVLTree, hc *cache.Cache) {
 
 	// List to show matching results
 	suggestionList := widgets.NewList()
-	suggestionList.Title = " Recalled From History 🍔 "
+	suggestionList.Title = " Recalled From History 🍔. Use <tab> Key to toggle b/w history and help page. Press <Esc>/Ctrl+C to exit"
 	suggestionList.Rows = []string{}
 	suggestionList.SelectedRow = 0
 	suggestionList.SelectedRowStyle = ui.NewStyle(ui.ColorBlack, ui.ColorGreen)
+	suggestionList.BorderStyle = ui.NewStyle(ui.ColorCyan)
 
 	// Create a widget to show help text of a command
 	helpList := widgets.NewList()
@@ -138,7 +146,6 @@ func run(tree *AVLTree, hc *cache.Cache) {
 	helpList.Rows = []string{"Press <F1> or <fn + 1> for help on the selected command."}
 	helpList.SelectedRow = 0
 	helpList.SelectedRowStyle = ui.NewStyle(ui.ColorBlack, ui.ColorYellow)
-	helpList.BorderStyle = ui.NewStyle(ui.ColorCyan)
 
 	// === Layout with Grid ===
 	grid := ui.NewGrid()
@@ -186,9 +193,17 @@ func run(tree *AVLTree, hc *cache.Cache) {
 			// Ctrl-C or Escape to exit
 			done <- true
 			return
-		case "<Tab>", "<Shift>":
+		case "<C-z>":
+			selectedText := helpList.Rows[helpList.SelectedRow]
+			if err := clipboard.WriteAll(selectedText); err != nil {
+				log.Printf("Failed to copy text: %v", err)
+			} else {
+				log.Println("Text successfully copied to clipboard!")
+			}
+		case "<Tab>":
 			// CHANGED: Press Tab or Shift to toggle focus
 			focusOnHelp = !focusOnHelp
+			toggleBorders(suggestionList, helpList)
 		case "<Backspace>":
 			// Remove the last character from input
 			if len(inputBuffer) > 0 {
@@ -216,7 +231,9 @@ func run(tree *AVLTree, hc *cache.Cache) {
 				if selectedIndex > 0 {
 					selectedIndex--
 					selectedCmd := suggestionList.Rows[selectedIndex]
-					repaintHelpWidget(grid, hc, helpList, selectedCmd)
+					// Reset Help page to Top
+					helpList.SelectedRow = 0
+					repaintHelpWidget(hc, helpList, selectedCmd)
 				}
 			}
 		case "<Down>":
@@ -229,27 +246,38 @@ func run(tree *AVLTree, hc *cache.Cache) {
 				if selectedIndex < len(suggestionList.Rows)-1 {
 					selectedIndex++
 					selectedCmd := suggestionList.Rows[selectedIndex]
-					repaintHelpWidget(grid, hc, helpList, selectedCmd)
+					// Reset Help page to Top
+					helpList.SelectedRow = 0
+					repaintHelpWidget(hc, helpList, selectedCmd)
 				}
-			}
-		case "<PageUp>":
-			if focusOnHelp && len(helpList.Rows) > 0 {
-				// Jump to top of help list
-				helpList.SelectedRow = 0
-			}
-		case "<PageDown>":
-			if focusOnHelp && len(helpList.Rows) > 0 {
-				// Jump to bottom of help list
-				helpList.SelectedRow = len(helpList.Rows) - 1
 			}
 		case "<F1>":
 			// Fetch help for the highlighted command
 			if len(suggestionList.Rows) > 0 {
 				selectedCmd := suggestionList.Rows[selectedIndex]
-				repaintHelpWidget(grid, hc, helpList, selectedCmd)
+				repaintHelpWidget(hc, helpList, selectedCmd)
+			}
+		case "<C-j>":
+			// Go to the last line
+			if !focusOnHelp {
+				suggestionList.SelectedRow = len(suggestionList.Rows) - 1
+			} else {
+				if len(helpList.Rows) > 0 {
+					helpList.SelectedRow = len(helpList.Rows) - 1
+				}
+			}
+		case "<C-k>":
+			// Go to the first line
+			if !focusOnHelp {
+				suggestionList.SelectedRow = 0
+			} else {
+				if len(helpList.Rows) > 0 {
+					helpList.SelectedRow = 0
+				}
 			}
 		case "<Resize>":
-			// If you need to handle resizing, do so here
+			// Re-render all widgets
+			ui.Render(grid)
 		default:
 			// Typically a typed character
 			if e.Type == ui.KeyboardEvent && len(e.ID) == 1 {

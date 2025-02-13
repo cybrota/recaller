@@ -1,3 +1,6 @@
+// dateutil.go
+// This util file is reused from: https://github.com/metakeule/fmtdate by Marc René Arns
+
 package main
 
 import (
