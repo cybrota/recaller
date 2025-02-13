@@ -1,7 +1,21 @@
 # Recaller
-A blazing fast, command-line tool to recall your shell history with absolute precision.
+Easily access & re-run your most frequent shell history with blazing-fast search and documentation help.
+No more cycling back with <bck-isearch>. See the latest history for any shell command.
 
 # Features
-* Access shell commands based on recency
-* Elegant UI to audit commands
-* Check manual documentation
+* Recall your shell commands based on recency & frequency
+* Fast access to documentation within shell for your favorite commands (Ex: kubectl, terraform, AWS CLI, cargo, go, npm, all man pages etc.)
+* Elegant Terminal UI to quickly see history & associated help pages
+* Optionally get examples, explain commands using AI over help pages (Requires Pro version)
+* Optionally sync your history from multiple devices (Requires Pro version)
+
+# Supported Platforms
+* Linux/Unix
+* Mac OSX
+
+# Supported Terminals
+* Bash
+* Zshell (Zsh)
+
+# Pleas be aware
+* Copy to cliboard feature on Linux or Unix requires 'xclip' or 'xsel' command to be installed
