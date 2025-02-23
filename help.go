@@ -1,4 +1,9 @@
-# Recaller
+package main
+
+func getHelpMessage() string {
+	message := `
+Recaller
+
 Easily access & re-run your most frequent shell history with blazing-fast search and documentation help.
 No more cycling back with <bck-isearch>. See the latest history for any shell command.
 
@@ -17,3 +22,6 @@ No more cycling back with <bck-isearch>. See the latest history for any shell co
 
 # Pleas be aware
 * Copy to cliboard feature on Linux or Unix requires 'xclip' or 'xsel' command to be installed
+`
+	return message
+}
