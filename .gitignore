@@ -3,3 +3,5 @@ recaller
 main
 # Added by goreleaser init:
 dist/
+.env
+.key
