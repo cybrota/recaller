@@ -15,6 +15,8 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
@@ -44,12 +46,49 @@ func removeOverstrike(input string) string {
 	return string(output)
 }
 
+func getCOmmandHelpTLDRPage(cmdParts []string) (string, error) {
+	baseCmd := cmdParts[0]
+	baseUrl := "https://raw.githubusercontent.com/tldr-pages/tldr/refs/heads/main/pages/common"
+	fullURL := ""
+
+	if len(cmdParts) >= 2 {
+		subCmd := cmdParts[1]
+		fullURL = fmt.Sprintf("%s/%s-%s.md", baseUrl, baseCmd, subCmd)
+	} else {
+		fullURL = fmt.Sprintf("%s/%s.md", baseUrl, baseCmd)
+	}
+
+	resp, err := http.Get(fullURL)
+	if err != nil {
+		fmt.Println("Error fetching TLDR page:", err)
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println("Error reading response body:", err)
+		return "", err
+	}
+
+	return string(body), nil
+}
+
 // getCommandHelp attempts to retrieve help text for a given command.
 // It makes some adjustments for commands like git that use subcommands.
 func getCommandHelp(cmdParts []string) (string, error) {
 	if len(cmdParts) == 0 {
 		return "", fmt.Errorf("no command provided")
 	}
+
+	// out, err := getCOmmandHelpTLDRPage(cmdParts)
+
+	// if err != nil {
+	// 	return "Cannot fetch TLDR doc", err
+	// }
+
+	// if out != "" {
+	// 	return out, nil
+	// }
 
 	baseCmd := cmdParts[0]
 	fullCmdName := strings.Join(cmdParts, " ")

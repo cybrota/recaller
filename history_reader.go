@@ -102,6 +102,7 @@ func readZshHistoryWithEpoch() ([]HistoryEntry, error) {
 
 // readBashHistoryWithEpoch reads ~/.bash_history file.
 // Set export HISTTIMEFORMAT="%s "
+// Run `history -w` to store history to .bash_history file (or) close the shell and re-launch
 // in ~/.bash_profile to read epoch timestamps correctly
 func readBashHistoryWithEpoch() ([]HistoryEntry, error) {
 	homeDir, err := os.UserHomeDir()
@@ -158,7 +159,10 @@ func readBashHistoryWithEpoch() ([]HistoryEntry, error) {
 func detectCurrentShell() (string, error) {
 	currentShellPath, ok := os.LookupEnv("SHELL")
 	if !ok {
-		return "", fmt.Errorf("SHELL environment variable not set")
+		return "", fmt.Errorf(
+			"SHELL environment variable not set. Set it with `export SHELL=bash` or `export SHELL=zsh`" +
+				"",
+		)
 	}
 
 	// Extract shell name from executable path (e.g., "/bin/zsh" -> "zsh")

@@ -131,7 +131,6 @@ func execCommand(command string) {
 		fmt.Fprintln(os.Stderr, "Command error:", err)
 		os.Exit(-1)
 	}
-	os.Exit(0)
 }
 
 // toggleBorders toggles borders of given widgets b/w White & Cyan
@@ -237,6 +236,13 @@ func run(tree *AVLTree, hc *cache.Cache) {
 	dateTi := time.NewTicker(1 * time.Second)
 	quoteTi := time.NewTicker(60 * time.Second)
 
+	// Perform a new prefix search whenever input changes (or arrows, etc.)
+	matches := SearchWithRanking(tree, inputBuffer)
+	suggestionList.Rows = []string{}
+	for _, node := range matches {
+		suggestionList.Rows = append(suggestionList.Rows, fmt.Sprintf("%s", node.Command))
+	}
+	ui.Render(grid)
 	// Start a ticker to update clock on the app
 	go func() {
 		for {
@@ -435,7 +441,7 @@ func run(tree *AVLTree, hc *cache.Cache) {
 
 		// Make sure the selectedIndex is still valid
 		if selectedIndex >= len(suggestionList.Rows) {
-			selectedIndex = len(suggestionList.Rows) - 1
+			selectedIndex = 0
 		}
 		if selectedIndex < 0 {
 			selectedIndex = 0
