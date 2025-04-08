@@ -18,6 +18,9 @@ import (
 )
 
 var quotes = []string{
+	"Optimism, obsession, self-belief, raw horsepower and personal connections are how things get started",
+	"It is easier for a team to do a hard thing that really matters than to do an easy thing that doesn’t really matter",
+	"Concentrate your resources on a small number of high-conviction bets",
 	"We are not Rational beings",
 	"Never say never",
 	"You can't change people, only youself",
@@ -27,13 +30,16 @@ var quotes = []string{
 	"Everything is a trade-off",
 	"Time can't be created or destroyed, only allocated",
 	"When stuck, talk to the duck",
-	"Read deliberately",
+	"Have a bias towards action",
+	"The best ideas are fragile and silly to listen",
 	"Chance favors the prepared mind",
 	"Learn from similarities, unlearn from differences",
 	"90% of the functionality delivered now is better than 100% delivered never.",
 	"Don't document bad code - rewrite it.",
 	"Write boring code to save yourself from debugging later",
 	"If you had done something twice, \nyou are likely to do it again",
+	"Communicate clearly and concisely",
+	"Outcomes are what count; don’t let good process excuse bad results",
 	"When in doubt, use brute force",
 	"We already have persistent objects, they're called files",
 	"I am a very bottom-up thinker starting from the top",
@@ -52,6 +58,9 @@ var quotes = []string{
 	"Prototype, then polish. Get it working before you optimize it",
 	"Do have fun sometimes",
 	"Release early. Release often. And listen to your customers",
+	"Get back up and keep going",
+	"Have a laser-sharp focus on the next step combined with long-term vision",
+	"An idea is good if you can articulate why most people think it’s a bad idea, but you understand what makes it good",
 }
 
 // pickRandomString returns a random string from the provided slice.

@@ -22,12 +22,17 @@ import (
 )
 
 const asciiLogo = `
-█▀▄ ██▀ ▄▀▀ ▄▀▄ █   █   ██▀ █▀▄
-█▀▄ █▄▄ ▀▄▄ █▀█ █▄▄ █▄▄ █▄▄ █▀▄
+██████╗ ███████╗ ██████╗ █████╗ ██╗     ██╗     ███████╗██████╗
+██╔══██╗██╔════╝██╔════╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗
+██████╔╝█████╗  ██║     ███████║██║     ██║     █████╗  ██████╔╝
+██╔══██╗██╔══╝  ██║     ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗
+██║  ██║███████╗╚██████╗██║  ██║███████╗███████╗███████╗██║  ██║
+╚═╝  ╚═╝╚══════╝ ╚═════╝╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝
+
+Copyright @ Naren Yellavula (https://github.com/narenaryan)
 `
 
 func main() {
-
 	var cmdRun = &cobra.Command{
 		Use:   "run",
 		Short: "Launches recaller UI for search & documentation",
@@ -58,7 +63,7 @@ func main() {
 	var cmdHistory = &cobra.Command{
 		Use:   "history",
 		Short: "Print Recaller usage guide",
-		Long:  fmt.Sprintf("%s\n%s", asciiLogo, fmt.Sprintf(`Suggest list of past %d most frequently used commands`, commandRecommendLimit)),
+		Long:  fmt.Sprintf("%s\n%s", asciiLogo, "Suggest list of past %d most frequently used commands"),
 		Args:  cobra.MinimumNArgs(0),
 		Run: func(cmd *cobra.Command, args []string) {
 			// Parse the command-line flags

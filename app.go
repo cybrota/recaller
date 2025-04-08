@@ -15,8 +15,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"os"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -26,8 +24,6 @@ import (
 	tb "github.com/nsf/termbox-go"
 	"github.com/patrickmn/go-cache"
 )
-
-const commandRecommendLimit = 5
 
 // DisableMouseInput in termbox-go. This should be called after ui.Init()
 func DisableMouseInput() {
@@ -87,6 +83,8 @@ func showAIWidget(
 	inputPara *widgets.Paragraph,
 	suggestionList *widgets.List,
 	helpList *widgets.List,
+	dateTimePara *widgets.Paragraph,
+	quotePara *widgets.Paragraph,
 	aiResponsePara *widgets.Paragraph,
 ) {
 	helpList.Rows = []string{}
@@ -96,7 +94,8 @@ func showAIWidget(
 			ui.NewRow(0.8, suggestionList),
 		),
 		ui.NewCol(0.7,
-			ui.NewCol(1, aiResponsePara),
+			ui.NewCol(0.05, dateTimePara),
+			ui.NewCol(0.95, aiResponsePara),
 		),
 	)
 }
@@ -106,6 +105,8 @@ func showHelpWidget(
 	inputPara *widgets.Paragraph,
 	suggestionList *widgets.List,
 	helpList *widgets.List,
+	dateTimePara *widgets.Paragraph,
+	quotePara *widgets.Paragraph,
 	aiResponsePara *widgets.Paragraph,
 ) {
 	aiResponsePara.Text = ""
@@ -115,22 +116,10 @@ func showHelpWidget(
 			ui.NewRow(0.8, suggestionList),
 		),
 		ui.NewCol(0.7,
-			ui.NewCol(1, helpList),
+			ui.NewRow(0.05, ui.NewCol(0.4, dateTimePara), ui.NewCol(0.6, quotePara)),
+			ui.NewRow(0.95, helpList),
 		),
 	)
-}
-
-func execCommand(command string) {
-	cmd := exec.Command("sh", "-c", command)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	err := cmd.Run()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "Command error:", err)
-		os.Exit(-1)
-	}
 }
 
 // toggleBorders toggles borders of given widgets b/w White & Cyan
@@ -157,16 +146,15 @@ func run(tree *AVLTree, hc *cache.Cache) {
 	DisableMouseInput()
 	defer ui.Close()
 
-	datetimeRowList := widgets.NewList()
-	datetimeRowList.Title = " Today "
-	datetimeRowList.Rows = []string{
-		getBanner(time.Now()),
-		"",
-		getPaddedQuote(GetRandomQuote()),
-	}
-	datetimeRowList.SelectedRow = 2
-	datetimeRowList.SelectedRowStyle = ui.NewStyle(ui.ColorBlack, ui.ColorBlue)
-	datetimeRowList.WrapText = true
+	datetimePara := widgets.NewParagraph()
+	datetimePara.Title = " Today "
+	datetimePara.Text = getBanner(time.Now())
+	datetimePara.WrapText = true
+
+	quotePara := widgets.NewParagraph()
+	quotePara.Title = " Developer Wisdom "
+	quotePara.Text = getPaddedQuote(GetRandomQuote())
+	quotePara.WrapText = true
 
 	rows, _ := ReadFilesAndDirs("green")
 	fileTreeRowTbl := widgets.NewTable()
@@ -207,7 +195,7 @@ func run(tree *AVLTree, hc *cache.Cache) {
 
 	// Create a widget to show help text of a command
 	helpList := widgets.NewList()
-	helpList.Title = " Command Doc "
+	helpList.Title = " Help Doc "
 	helpList.Rows = []string{"Select a command to display the help text"}
 	helpList.SelectedRow = 0
 	helpList.SelectedRowStyle = ui.NewStyle(ui.ColorBlack, ui.ColorYellow)
@@ -220,11 +208,11 @@ func run(tree *AVLTree, hc *cache.Cache) {
 	aiResponsePara.TextStyle.Fg = ui.ColorWhite
 
 	// === Layout with Grid ===
-	grid := ui.NewGrid()
 	termWidth, termHeight := ui.TerminalDimensions()
+	grid := ui.NewGrid()
 	grid.SetRect(0, 0, termWidth, termHeight)
 
-	showHelpWidget(grid, inputPara, suggestionList, helpList, aiResponsePara)
+	showHelpWidget(grid, inputPara, suggestionList, helpList, datetimePara, quotePara, aiResponsePara)
 	// 4. Render initial UI
 	ui.Render(grid)
 
@@ -234,7 +222,7 @@ func run(tree *AVLTree, hc *cache.Cache) {
 	selectedIndex := 0
 
 	dateTi := time.NewTicker(1 * time.Second)
-	quoteTi := time.NewTicker(60 * time.Second)
+	quoteTi := time.NewTicker(10 * time.Second)
 
 	// Perform a new prefix search whenever input changes (or arrows, etc.)
 	matches := SearchWithRanking(tree, inputBuffer)
@@ -250,10 +238,11 @@ func run(tree *AVLTree, hc *cache.Cache) {
 			case <-done:
 				return
 			case t, _ := <-dateTi.C:
-				datetimeRowList.Rows[0] = getBanner(t)
-				ui.Render(datetimeRowList)
+				datetimePara.Text = getBanner(t)
+				ui.Render(datetimePara)
 			case <-quoteTi.C:
-				datetimeRowList.Rows[2] = getPaddedQuote(GetRandomQuote())
+				quotePara.Text = getPaddedQuote(GetRandomQuote())
+				ui.Render(quotePara)
 			}
 		}
 	}()
@@ -288,9 +277,10 @@ func run(tree *AVLTree, hc *cache.Cache) {
 			ui.Close()
 			if len(suggestionList.Rows) > 0 {
 				selectedCommand := suggestionList.Rows[selectedIndex]
-				execCommand(selectedCommand)
+				fmt.Println(fmt.Sprintf("Trying to run command: %s", selectedCommand))
+				execCommandInPTY(selectedCommand)
 			} else {
-				execCommand(inputBuffer)
+				execCommandInPTY(inputBuffer)
 			}
 		case "<Up>":
 			if focusOnHelp {
@@ -306,7 +296,7 @@ func run(tree *AVLTree, hc *cache.Cache) {
 					// Reset Help page to Top
 					helpList.SelectedRow = 0
 					repaintHelpWidget(hc, helpList, selectedCmd)
-					showHelpWidget(grid, inputPara, suggestionList, helpList, aiResponsePara)
+					showHelpWidget(grid, inputPara, suggestionList, helpList, datetimePara, quotePara, aiResponsePara)
 				}
 			}
 		case "<Down>":
@@ -322,7 +312,7 @@ func run(tree *AVLTree, hc *cache.Cache) {
 					// Reset Help page to Top
 					helpList.SelectedRow = 0
 					repaintHelpWidget(hc, helpList, selectedCmd)
-					showHelpWidget(grid, inputPara, suggestionList, helpList, aiResponsePara)
+					showHelpWidget(grid, inputPara, suggestionList, helpList, datetimePara, quotePara, aiResponsePara)
 				}
 			}
 		case "<F1>":
@@ -335,7 +325,7 @@ func run(tree *AVLTree, hc *cache.Cache) {
 			}
 
 			repaintHelpWidget(hc, helpList, selectedCmd)
-			showHelpWidget(grid, inputPara, suggestionList, helpList, aiResponsePara)
+			showHelpWidget(grid, inputPara, suggestionList, helpList, datetimePara, quotePara, aiResponsePara)
 		case "<C-u>":
 			if !focusOnHelp {
 				inputBuffer = suggestionList.Rows[selectedIndex]
@@ -354,7 +344,7 @@ func run(tree *AVLTree, hc *cache.Cache) {
 				}
 			}
 		// case "<C-e>":
-		// 	showAIWidget(grid, inputPara, suggestionList, helpList, aiResponsePara)
+		// 	showAIWidget(grid, inputPara, suggestionList, helpList, datetimePara, aiResponsePara)
 		// 	ui.Render(grid)
 		// 	helpList.Rows = []string{}
 		// 	var sc string
@@ -425,7 +415,7 @@ func run(tree *AVLTree, hc *cache.Cache) {
 
 			if len(suggestionList.Rows) > 0 {
 				repaintHelpWidget(hc, helpList, suggestionList.Rows[0])
-				showHelpWidget(grid, inputPara, suggestionList, helpList, aiResponsePara)
+				showHelpWidget(grid, inputPara, suggestionList, helpList, datetimePara, quotePara, aiResponsePara)
 			}
 		}
 
@@ -461,9 +451,6 @@ func getSuggestions(searchStr string, tree *AVLTree) []string {
 
 	count := 0
 	for _, node := range matches {
-		if count == commandRecommendLimit {
-			break
-		}
 		results = append(results, fmt.Sprintf("%s", node.Command))
 		count++
 	}

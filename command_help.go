@@ -197,7 +197,7 @@ func getCommandHelp(cmdParts []string) (string, error) {
 		return out, nil
 	}
 
-	return "", fmt.Errorf("no help found for command %q", fullCmdName)
+	return "", fmt.Errorf("\nNo help found for command %q", fullCmdName)
 }
 
 // splitCommand splits a full command string into parts.
