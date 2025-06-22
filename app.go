@@ -402,7 +402,14 @@ func run(tree *AVLTree, hc *cache.Cache) {
 				}
 			}
 		case "<Resize>":
-			// Re-render all widgets
+			// Adjust layout when the terminal size changes
+			if payload, ok := e.Payload.(ui.Resize); ok {
+				grid.SetRect(0, 0, payload.Width, payload.Height)
+			} else {
+				termWidth, termHeight := ui.TerminalDimensions()
+				grid.SetRect(0, 0, termWidth, termHeight)
+			}
+			ui.Clear()
 			ui.Render(grid)
 		default:
 			// Typically a typed character
