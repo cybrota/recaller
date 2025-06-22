@@ -75,7 +75,22 @@ func GetOrfillCache(c *cache.Cache, cmd string) string {
 
 func repaintHelpWidget(c *cache.Cache, l *widgets.List, cmd string) {
 	helpTxt := GetOrfillCache(c, cmd)
-	l.Rows = strings.Split(helpTxt, "\n")
+	lines := strings.Split(helpTxt, "\n")
+	l.Rows = dedupeLines(lines)
+}
+
+// dedupeLines removes consecutive duplicate lines from a slice of strings.
+func dedupeLines(lines []string) []string {
+	if len(lines) == 0 {
+		return lines
+	}
+	out := []string{lines[0]}
+	for _, ln := range lines[1:] {
+		if ln != out[len(out)-1] {
+			out = append(out, ln)
+		}
+	}
+	return out
 }
 
 // computeHeaderRatio determines the percentage of vertical space to allocate
