@@ -78,6 +78,25 @@ func repaintHelpWidget(c *cache.Cache, l *widgets.List, cmd string) {
 	l.Rows = strings.Split(helpTxt, "\n")
 }
 
+// computeHeaderRatio determines the percentage of vertical space to allocate
+// for the banner widgets (Today and Developer Wisdom). It ensures they remain
+// readable on smaller terminals by reserving at least three lines and no more
+// than a quarter of the screen.
+func computeHeaderRatio(termHeight int) float64 {
+	if termHeight <= 0 {
+		return 0.05
+	}
+	minLines := 3.0
+	ratio := minLines / float64(termHeight)
+	if ratio < 0.05 {
+		ratio = 0.05
+	}
+	if ratio > 0.25 {
+		ratio = 0.25
+	}
+	return ratio
+}
+
 func showAIWidget(
 	grid *ui.Grid,
 	inputPara *widgets.Paragraph,
@@ -86,6 +105,7 @@ func showAIWidget(
 	dateTimePara *widgets.Paragraph,
 	quotePara *widgets.Paragraph,
 	aiResponsePara *widgets.Paragraph,
+	headerRatio float64,
 ) {
 	helpList.Rows = []string{}
 	grid.Set(
@@ -94,8 +114,8 @@ func showAIWidget(
 			ui.NewRow(0.8, suggestionList),
 		),
 		ui.NewCol(0.7,
-			ui.NewCol(0.05, dateTimePara),
-			ui.NewCol(0.95, aiResponsePara),
+			ui.NewCol(headerRatio, dateTimePara),
+			ui.NewCol(1-headerRatio, aiResponsePara),
 		),
 	)
 }
@@ -108,6 +128,7 @@ func showHelpWidget(
 	dateTimePara *widgets.Paragraph,
 	quotePara *widgets.Paragraph,
 	aiResponsePara *widgets.Paragraph,
+	headerRatio float64,
 ) {
 	aiResponsePara.Text = ""
 	grid.Set(
@@ -116,8 +137,8 @@ func showHelpWidget(
 			ui.NewRow(0.8, suggestionList),
 		),
 		ui.NewCol(0.7,
-			ui.NewRow(0.05, ui.NewCol(0.4, dateTimePara), ui.NewCol(0.6, quotePara)),
-			ui.NewRow(0.95, helpList),
+			ui.NewRow(headerRatio, ui.NewCol(0.4, dateTimePara), ui.NewCol(0.6, quotePara)),
+			ui.NewRow(1-headerRatio, helpList),
 		),
 	)
 }
@@ -209,10 +230,11 @@ func run(tree *AVLTree, hc *cache.Cache) {
 
 	// === Layout with Grid ===
 	termWidth, termHeight := ui.TerminalDimensions()
+	headerRatio := computeHeaderRatio(termHeight)
 	grid := ui.NewGrid()
 	grid.SetRect(0, 0, termWidth, termHeight)
 
-	showHelpWidget(grid, inputPara, suggestionList, helpList, datetimePara, quotePara, aiResponsePara)
+	showHelpWidget(grid, inputPara, suggestionList, helpList, datetimePara, quotePara, aiResponsePara, headerRatio)
 	// 4. Render initial UI
 	ui.Render(grid)
 
@@ -296,7 +318,7 @@ func run(tree *AVLTree, hc *cache.Cache) {
 					// Reset Help page to Top
 					helpList.SelectedRow = 0
 					repaintHelpWidget(hc, helpList, selectedCmd)
-					showHelpWidget(grid, inputPara, suggestionList, helpList, datetimePara, quotePara, aiResponsePara)
+					showHelpWidget(grid, inputPara, suggestionList, helpList, datetimePara, quotePara, aiResponsePara, headerRatio)
 				}
 			}
 		case "<Down>":
@@ -312,7 +334,7 @@ func run(tree *AVLTree, hc *cache.Cache) {
 					// Reset Help page to Top
 					helpList.SelectedRow = 0
 					repaintHelpWidget(hc, helpList, selectedCmd)
-					showHelpWidget(grid, inputPara, suggestionList, helpList, datetimePara, quotePara, aiResponsePara)
+					showHelpWidget(grid, inputPara, suggestionList, helpList, datetimePara, quotePara, aiResponsePara, headerRatio)
 				}
 			}
 		case "<F1>":
@@ -325,7 +347,7 @@ func run(tree *AVLTree, hc *cache.Cache) {
 			}
 
 			repaintHelpWidget(hc, helpList, selectedCmd)
-			showHelpWidget(grid, inputPara, suggestionList, helpList, datetimePara, quotePara, aiResponsePara)
+			showHelpWidget(grid, inputPara, suggestionList, helpList, datetimePara, quotePara, aiResponsePara, headerRatio)
 		case "<C-u>":
 			if !focusOnHelp {
 				inputBuffer = suggestionList.Rows[selectedIndex]
@@ -405,10 +427,13 @@ func run(tree *AVLTree, hc *cache.Cache) {
 			// Adjust layout when the terminal size changes
 			if payload, ok := e.Payload.(ui.Resize); ok {
 				grid.SetRect(0, 0, payload.Width, payload.Height)
+				headerRatio = computeHeaderRatio(payload.Height)
 			} else {
 				termWidth, termHeight := ui.TerminalDimensions()
 				grid.SetRect(0, 0, termWidth, termHeight)
+				headerRatio = computeHeaderRatio(termHeight)
 			}
+			showHelpWidget(grid, inputPara, suggestionList, helpList, datetimePara, quotePara, aiResponsePara, headerRatio)
 			ui.Clear()
 			ui.Render(grid)
 		default:
@@ -422,7 +447,7 @@ func run(tree *AVLTree, hc *cache.Cache) {
 
 			if len(suggestionList.Rows) > 0 {
 				repaintHelpWidget(hc, helpList, suggestionList.Rows[0])
-				showHelpWidget(grid, inputPara, suggestionList, helpList, datetimePara, quotePara, aiResponsePara)
+				showHelpWidget(grid, inputPara, suggestionList, helpList, datetimePara, quotePara, aiResponsePara, headerRatio)
 			}
 		}
 
