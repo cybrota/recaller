@@ -159,14 +159,14 @@ func showAIWidget(
 ) {
 	helpList.Rows = []string{}
 	grid.Set(
-		ui.NewRow(0.95,
+		ui.NewRow(0.93,
 			ui.NewCol(0.3,
 				ui.NewRow(0.2, inputPara),
-				ui.NewRow(0.8, suggestionList),
+				ui.NewRow(0.82, suggestionList), // 0.82 for fill empty padding forced by keyboard widget
 			),
-			ui.NewCol(0.7, aiResponsePara),
+			ui.NewCol(0.7, helpList),
 		),
-		ui.NewRow(0.05, keyboardList),
+		ui.NewRow(0.07, keyboardList),
 	)
 }
 
@@ -180,14 +180,14 @@ func showHelpWidget(
 ) {
 	aiResponsePara.Text = ""
 	grid.Set(
-		ui.NewRow(0.95,
+		ui.NewRow(0.93,
 			ui.NewCol(0.3,
 				ui.NewRow(0.2, inputPara),
-				ui.NewRow(0.8, suggestionList),
+				ui.NewRow(0.82, suggestionList), // 0.82 for fill empty padding forced by keyboard widget
 			),
 			ui.NewCol(0.7, helpList),
 		),
-		ui.NewRow(0.05, keyboardList),
+		ui.NewRow(0.07, keyboardList),
 	)
 }
 
