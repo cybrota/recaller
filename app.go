@@ -15,6 +15,8 @@ package main
 import (
 	"fmt"
 	"log"
+	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -30,6 +32,80 @@ func DisableMouseInput() {
 	tb.SetInputMode(tb.InputEsc)
 }
 
+// sendToTerminal sends a command to the terminal (cross-platform)
+func sendToTerminal(command string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return sendToTerminalMacOS(command)
+	case "linux":
+		return sendToTerminalLinux(command)
+	default:
+		return fmt.Errorf("terminal automation not supported on %s", runtime.GOOS)
+	}
+}
+
+// sendToTerminalMacOS sends command using AppleScript
+func sendToTerminalMacOS(command string) error {
+	// Escape double quotes for AppleScript
+	escapedCommand := strings.ReplaceAll(command, `"`, `\"`)
+
+	// Try Terminal.app first (most common)
+	script := fmt.Sprintf(`tell application "Terminal"
+		activate
+		if (count of windows) = 0 then
+			do script "%s"
+		else
+			set newTab to do script "%s" in front window
+			set selected of newTab to true
+		end if
+	end tell`, escapedCommand, escapedCommand)
+
+	cmd := exec.Command("osascript", "-e", script)
+	err := cmd.Run()
+
+	// If Terminal.app fails, try iTerm2
+	if err != nil {
+		script = fmt.Sprintf(`tell application "iTerm2"
+			tell current window
+				set newSession to (create tab with default profile)
+				tell current session to write text "%s"
+			end tell
+			activate
+		end tell`, escapedCommand)
+		cmd = exec.Command("osascript", "-e", script)
+		err = cmd.Run()
+	}
+
+	return err
+}
+
+// sendToTerminalLinux sends command using Linux terminal emulators
+func sendToTerminalLinux(command string) error {
+	// Try different terminal emulators in order of preference
+	terminals := []struct {
+		name string
+		cmd  []string
+	}{
+		{"gnome-terminal", []string{"gnome-terminal", "--tab", "--", "bash", "-c", command + "; exec bash"}},
+		{"konsole", []string{"konsole", "--new-tab", "-e", "bash", "-c", command + "; exec bash"}},
+		{"xfce4-terminal", []string{"xfce4-terminal", "--tab", "-e", "bash -c '" + command + "; exec bash'"}},
+		{"tilix", []string{"tilix", "-a", "session-add-down", "-e", "bash -c '" + command + "; exec bash'"}},
+		{"terminator", []string{"terminator", "--new-tab", "-e", "bash -c '" + command + "; exec bash'"}},
+		{"alacritty", []string{"alacritty", "-e", "bash", "-c", command + "; exec bash"}},
+		{"kitty", []string{"kitty", "--tab", "bash", "-c", command + "; exec bash"}},
+		{"xterm", []string{"xterm", "-e", "bash", "-c", command + "; exec bash"}},
+	}
+
+	// First, try to detect which terminal is available
+	for _, terminal := range terminals {
+		if _, err := exec.LookPath(terminal.name); err == nil {
+			cmd := exec.Command(terminal.cmd[0], terminal.cmd[1:]...)
+			return cmd.Start() // Use Start() instead of Run() to avoid blocking
+		}
+	}
+
+	return fmt.Errorf("no supported terminal emulator found")
+}
 
 func GetOrfillCache(c *cache.Cache, cmd string) string {
 	help, err := splitCommand(cmd)
@@ -72,7 +148,6 @@ func dedupeLines(lines []string) []string {
 	}
 	return out
 }
-
 
 func showAIWidget(
 	grid *ui.Grid,
@@ -145,7 +220,6 @@ func run(tree *AVLTree, hc *cache.Cache) {
 	DisableMouseInput()
 	defer ui.Close()
 
-
 	rows, _ := ReadFilesAndDirs("green")
 	fileTreeRowTbl := widgets.NewTable()
 	fileTreeRowTbl.Title = "Files & Directories"
@@ -160,7 +234,7 @@ func run(tree *AVLTree, hc *cache.Cache) {
 
 	keyboardList := widgets.NewParagraph()
 	keyboardList.Title = " Keyboard Shortcuts "
-	keyboardList.Text = `[<enter>](fg:green) Execute command  [<ctrl+r>](fg:green) Reset input  [<tab>](fg:green) Switch panels  [<up/down>](fg:green) Navigate  [<ctrl+u>](fg:green) Insert command  [<ctrl+j/k>](fg:green) Jump first/last  [<F1>](fg:green) Show help  [<ctrl+z>](fg:green) Copy text  [<esc>](fg:green) Quit`
+	keyboardList.Text = `[<enter>](fg:green) Copy command  [<ctrl+e>](fg:green) Send to terminal  [<ctrl+r>](fg:green) Reset input  [<tab>](fg:green) Switch panels  [<up/down>](fg:green) Navigate  [<ctrl+u>](fg:green) Insert command  [<ctrl+j/k>](fg:green) Jump first/last  [<F1>](fg:green) Show help  [<ctrl+z>](fg:green) Copy text  [<esc>](fg:green) Quit`
 	keyboardList.TextStyle.Fg = ui.ColorWhite
 	keyboardList.BorderStyle.Fg = ui.ColorWhite
 
@@ -209,7 +283,6 @@ func run(tree *AVLTree, hc *cache.Cache) {
 	selectedIndex := 0
 	lastSearchQuery := "" // Cache last search to avoid redundant operations
 
-
 	// Helper function to update search results
 	updateSearchResults := func(query string) {
 		if query == lastSearchQuery {
@@ -230,14 +303,14 @@ func run(tree *AVLTree, hc *cache.Cache) {
 			selectedIndex = 0
 		}
 		suggestionList.SelectedRow = selectedIndex
-		
+
 		// Auto-load help text for the selected command
 		if len(suggestionList.Rows) > 0 {
 			selectedCmd := suggestionList.Rows[selectedIndex]
 			helpList.SelectedRow = 0 // Reset help scroll to top
 			repaintHelpWidget(hc, helpList, selectedCmd)
 		}
-		
+
 		ui.Render(grid)
 	}
 
@@ -287,14 +360,40 @@ func run(tree *AVLTree, hc *cache.Cache) {
 			// Reset and restart debounce timer
 			searchDebouncer.Reset(debounceDelay)
 		case "<Enter>":
-			ui.Close()
+			var commandToCopy string
 			if len(suggestionList.Rows) > 0 {
-				selectedCommand := suggestionList.Rows[selectedIndex]
-				fmt.Println(fmt.Sprintf("Trying to run command: %s", selectedCommand))
-				execCommandInPTY(selectedCommand)
+				commandToCopy = suggestionList.Rows[selectedIndex]
 			} else {
-				execCommandInPTY(inputBuffer)
+				commandToCopy = inputBuffer
 			}
+
+			if commandToCopy != "" {
+				if err := clipboard.WriteAll(commandToCopy); err != nil {
+					log.Printf("Failed to copy command to clipboard: %v", err)
+				} else {
+					fmt.Printf("📋 Copied `%s` to clipboard\n", commandToCopy)
+				}
+			}
+			ui.Close()
+			return
+		case "<C-e>":
+			// Ctrl+E to send command directly to terminal
+			var commandToSend string
+			if len(suggestionList.Rows) > 0 {
+				commandToSend = suggestionList.Rows[selectedIndex]
+			} else {
+				commandToSend = inputBuffer
+			}
+
+			if commandToSend != "" {
+				if err := sendToTerminal(commandToSend); err != nil {
+					log.Printf("Failed to send command to terminal: %v", err)
+				} else {
+					fmt.Printf("⚡ Sent `%s` to terminal\n", commandToSend)
+				}
+			}
+			ui.Close()
+			return
 		case "<Up>":
 			if focusOnHelp {
 				// Scroll helpList up

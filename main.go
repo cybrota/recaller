@@ -86,7 +86,20 @@ func main() {
 		},
 	}
 
-	var rootCmd = &cobra.Command{Use: "recaller", Long: asciiLogo}
+	var rootCmd = &cobra.Command{
+		Use:  "recaller",
+		Long: asciiLogo,
+		Run: func(cmd *cobra.Command, args []string) {
+			// Default to run command when no subcommand is provided
+			helpCache := NewOptimizedHelpCache()
+
+			tree := NewAVLTree()
+			if err := readHistoryAndPopulateTree(tree); err != nil {
+				log.Fatalf("Error reading history: %v", err)
+			}
+			run(tree, helpCache)
+		},
+	}
 	rootCmd.AddCommand(cmdRun, cmdUsage, cmdVersion, cmdHistory)
 	rootCmd.Execute()
 }

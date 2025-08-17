@@ -14,12 +14,14 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/mattn/go-shellwords"
 )
@@ -58,13 +60,18 @@ func getCOmmandHelpTLDRPage(cmdParts []string) (string, error) {
 		fullURL = fmt.Sprintf("%s/%s.md", baseUrl, baseCmd)
 	}
 
-	resp, err := http.Get(fullURL)
+	// Add timeout to HTTP request
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(fullURL)
 	if err != nil {
 		fmt.Println("Error fetching TLDR page:", err)
 		return "", err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+
+	// Limit response body size
+	limitedReader := io.LimitReader(resp.Body, 512*1024) // 512KB limit
+	body, err := io.ReadAll(limitedReader)
 	if err != nil {
 		fmt.Println("Error reading response body:", err)
 		return "", err
@@ -93,21 +100,57 @@ func getCommandHelp(cmdParts []string) (string, error) {
 	baseCmd := cmdParts[0]
 	fullCmdName := strings.Join(cmdParts, " ")
 
-	// Helper function to run a command and return its output.
+	// Helper function with configurable timeout
+	runCmdWithTimeout := func(name string, timeout time.Duration, args ...string) (string, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+
+		cmd := exec.CommandContext(ctx, name, args...)
+
+		// Limit output size to prevent memory exhaustion
+		var buf bytes.Buffer
+		limitedWriter := &limitedWriter{w: &buf, limit: 1024 * 1024} // 1MB limit
+		cmd.Stdout = limitedWriter
+		cmd.Stderr = limitedWriter
+
+		err := cmd.Run()
+		if limitedWriter.truncated {
+			return buf.String() + "\n[OUTPUT TRUNCATED - Size limit exceeded]", err
+		}
+		return buf.String(), err
+	}
+
+	// Helper function to run a command with timeout and size limits
 	runCmd := func(name string, args ...string) (string, error) {
-		cmd := exec.Command(name, args...)
-		out, err := cmd.CombinedOutput()
-		return string(out), err
+		return runCmdWithTimeout(name, 30*time.Second, args...)
 	}
 
 	// Special handling for Git commands:
 	if baseCmd == "git" && len(cmdParts) >= 2 {
 
 		subCmd := cmdParts[1]
-		helpCmd := exec.Command("git", "help", subCmd)
-		helpCmd.Env = append(os.Environ(), "GIT_PAGER=cat")
-		if out, err := helpCmd.CombinedOutput(); err == nil {
-			return removeOverstrike(string(out)), nil
+		// Create git help command with proper environment
+		gitHelpCmd := func() (string, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+
+			cmd := exec.CommandContext(ctx, "git", "help", subCmd)
+			cmd.Env = append(os.Environ(), "GIT_PAGER=cat")
+
+			var buf bytes.Buffer
+			limitedWriter := &limitedWriter{w: &buf, limit: 1024 * 1024}
+			cmd.Stdout = limitedWriter
+			cmd.Stderr = limitedWriter
+
+			err := cmd.Run()
+			if limitedWriter.truncated {
+				return buf.String() + "\n[OUTPUT TRUNCATED - Size limit exceeded]", err
+			}
+			return buf.String(), err
+		}
+
+		if out, err := gitHelpCmd(); err == nil {
+			return removeOverstrike(out), nil
 		}
 		return "", fmt.Errorf("failed to get help for command %q", fullCmdName)
 	}
@@ -162,27 +205,19 @@ func getCommandHelp(cmdParts []string) (string, error) {
 		}
 	}
 
-	// Check if a man page exists using "man -w"
-	manCheck := exec.Command("man", "-w", baseCmd)
+	// Check if a man page exists using "man -w" with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	manCheck := exec.CommandContext(ctx, "man", "-w", baseCmd)
 	if err := manCheck.Run(); err == nil {
-		// Run "man <command>"
-		manCmd := exec.Command("man", baseCmd)
-
-		var buf bytes.Buffer
-		manCmd.Stdout = &buf
-		// Start command and capture output.
-		if err := manCmd.Start(); err != nil {
-			return "", fmt.Errorf("failed to start man command: %v", err)
+		// Run "man <command>" with timeout and size limits
+		if output, err := runCmdWithTimeout("man", 30*time.Second, baseCmd); err == nil {
+			// Handle minimal environments where man prints a placeholder message
+			if strings.Contains(output, "No manual entry") || strings.Contains(output, "has been minimized") {
+				return "", fmt.Errorf("man page not found for command %q", baseCmd)
+			}
+			return removeOverstrike(output), nil
 		}
-		if err := manCmd.Wait(); err != nil {
-			return "", fmt.Errorf("man command failed: %v", err)
-		}
-		output := buf.String()
-		// Handle minimal environments where man prints a placeholder message.
-		if strings.Contains(output, "No manual entry") || strings.Contains(output, "has been minimized") {
-			return "", fmt.Errorf("man page not found for command %q", baseCmd)
-		}
-		return removeOverstrike(output), nil
 	}
 
 	// For other commands, try common help flags.
@@ -211,4 +246,31 @@ func splitCommand(fullCmd string) ([]string, error) {
 		return nil, nil
 	}
 	return args, nil
+}
+
+// limitedWriter implements io.Writer with size limiting
+type limitedWriter struct {
+	w         io.Writer
+	limit     int64
+	written   int64
+	truncated bool
+}
+
+func (lw *limitedWriter) Write(p []byte) (n int, err error) {
+	if lw.written >= lw.limit {
+		lw.truncated = true
+		return len(p), nil // Pretend we wrote it to avoid errors
+	}
+
+	remaining := lw.limit - lw.written
+	if int64(len(p)) > remaining {
+		lw.truncated = true
+		n, err = lw.w.Write(p[:remaining])
+		lw.written += int64(n)
+		return len(p), err // Return original length to avoid errors
+	}
+
+	n, err = lw.w.Write(p)
+	lw.written += int64(n)
+	return n, err
 }
