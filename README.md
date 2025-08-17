@@ -1,4 +1,7 @@
 # Recaller
+
+![Recaller Logo](logo.png)
+
 Easily access & re-run your most frequent shell history with blazing-fast search and documentation help.
 No more cycling back with <bck-isearch>. See the latest history for any shell command.
 
