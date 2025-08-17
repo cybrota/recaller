@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -256,17 +257,17 @@ func rangeSearch(node *AVLNode, low, high string, results *[]*AVLNode) {
 		return
 	}
 
-	// If node.Key can still be >= low, we must check the left subtree
+	// Use string comparison optimization - only traverse left if needed
 	if node.Key >= low {
 		rangeSearch(node.Left, low, high, results)
 	}
 
 	// If node.Key is actually in [low, high), collect it
-	if node.Key >= low && node.Key < high {
+	if len(node.Key) >= len(low) && strings.HasPrefix(node.Key, low) {
 		*results = append(*results, node)
 	}
 
-	// If node.Key is still < high, we must check the right subtree
+	// Use string comparison optimization - only traverse right if needed
 	if node.Key < high {
 		rangeSearch(node.Right, low, high, results)
 	}
@@ -332,27 +333,25 @@ func calculateScore(metadata CommandMetadata) (float64, error) {
 }
 
 func SearchWithRanking(tree *AVLTree, query string) []RankedCommand {
-	var rankedCommands []RankedCommand
-
-	// Traverse the tree to find matching commands (this part assumes a certain tree traversal method)
+	// Pre-allocate slice with estimated capacity to reduce allocations
 	nodes := tree.SearchPrefix(query)
+	rankedCommands := make([]RankedCommand, 0, len(nodes))
+
+	// Traverse the tree to find matching commands
 	for _, node := range nodes {
 		command := node.Key
-		metadata := node.Value // Assert type
+		metadata := node.Value
 
 		score, err := calculateScore(metadata)
-
 		if err != nil {
-			log.Fatalf("%s", err.Error())
+			log.Printf("Error calculating score for command %s: %v", command, err)
+			continue // Skip this command instead of crashing
 		}
 
 		rankedCommand := RankedCommand{
-			Command: command,
-			Score:   score,
-			Metadata: CommandMetadata{ // Optionally include metadata in the result
-				Timestamp: metadata.Timestamp,
-				Frequency: metadata.Frequency,
-			},
+			Command:  command,
+			Score:    score,
+			Metadata: metadata, // Reuse existing metadata to avoid copying
 		}
 
 		rankedCommands = append(rankedCommands, rankedCommand)

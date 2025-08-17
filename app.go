@@ -30,26 +30,6 @@ func DisableMouseInput() {
 	tb.SetInputMode(tb.InputEsc)
 }
 
-// getBanner creates a datetime message
-func getBanner(t time.Time) string {
-	d := DaysToWeekend()
-	msg := ""
-
-	switch d {
-	case 0:
-		msg = "Enjoy your weekend! ☕"
-	case 1:
-		msg = fmt.Sprintf("%d day to Weekend! 🌴", d)
-	default:
-		msg = fmt.Sprintf("%d day to Weekend! 🌴", d)
-	}
-	return fmt.Sprintf("%s. %s", FormatDateTime(t), msg)
-}
-
-// getPaddedQuote adds before and after padding to a quote
-func getPaddedQuote(quote string) string {
-	return " " + quote + " "
-}
 
 func GetOrfillCache(c *cache.Cache, cmd string) string {
 	help, err := splitCommand(cmd)
@@ -93,45 +73,25 @@ func dedupeLines(lines []string) []string {
 	return out
 }
 
-// computeHeaderRatio determines the percentage of vertical space to allocate
-// for the banner widgets (Today and Developer Wisdom). It ensures they remain
-// readable on smaller terminals by reserving at least three lines and no more
-// than a quarter of the screen.
-func computeHeaderRatio(termHeight int) float64 {
-	if termHeight <= 0 {
-		return 0.05
-	}
-	minLines := 3.0
-	ratio := minLines / float64(termHeight)
-	if ratio < 0.05 {
-		ratio = 0.05
-	}
-	if ratio > 0.25 {
-		ratio = 0.25
-	}
-	return ratio
-}
 
 func showAIWidget(
 	grid *ui.Grid,
 	inputPara *widgets.Paragraph,
 	suggestionList *widgets.List,
 	helpList *widgets.List,
-	dateTimePara *widgets.Paragraph,
-	quotePara *widgets.Paragraph,
 	aiResponsePara *widgets.Paragraph,
-	headerRatio float64,
+	keyboardList *widgets.Paragraph,
 ) {
 	helpList.Rows = []string{}
 	grid.Set(
-		ui.NewCol(0.3,
-			ui.NewRow(0.2, inputPara),
-			ui.NewRow(0.8, suggestionList),
+		ui.NewRow(0.95,
+			ui.NewCol(0.3,
+				ui.NewRow(0.2, inputPara),
+				ui.NewRow(0.8, suggestionList),
+			),
+			ui.NewCol(0.7, aiResponsePara),
 		),
-		ui.NewCol(0.7,
-			ui.NewCol(headerRatio, dateTimePara),
-			ui.NewCol(1-headerRatio, aiResponsePara),
-		),
+		ui.NewRow(0.05, keyboardList),
 	)
 }
 
@@ -140,21 +100,19 @@ func showHelpWidget(
 	inputPara *widgets.Paragraph,
 	suggestionList *widgets.List,
 	helpList *widgets.List,
-	dateTimePara *widgets.Paragraph,
-	quotePara *widgets.Paragraph,
 	aiResponsePara *widgets.Paragraph,
-	headerRatio float64,
+	keyboardList *widgets.Paragraph,
 ) {
 	aiResponsePara.Text = ""
 	grid.Set(
-		ui.NewCol(0.3,
-			ui.NewRow(0.2, inputPara),
-			ui.NewRow(0.8, suggestionList),
+		ui.NewRow(0.95,
+			ui.NewCol(0.3,
+				ui.NewRow(0.2, inputPara),
+				ui.NewRow(0.8, suggestionList),
+			),
+			ui.NewCol(0.7, helpList),
 		),
-		ui.NewCol(0.7,
-			ui.NewRow(headerRatio, ui.NewCol(0.4, dateTimePara), ui.NewCol(0.6, quotePara)),
-			ui.NewRow(1-headerRatio, helpList),
-		),
+		ui.NewRow(0.05, keyboardList),
 	)
 }
 
@@ -176,21 +134,17 @@ func run(tree *AVLTree, hc *cache.Cache) {
 	// Done channel for ticker
 	done := make(chan bool)
 
+	// Debouncing for search operations
+	searchDebouncer := time.NewTimer(0)
+	searchDebouncer.Stop()
+	const debounceDelay = 100 * time.Millisecond
+
 	if err := ui.Init(); err != nil {
 		log.Fatalf("failed to initialize termui: %v", err)
 	}
 	DisableMouseInput()
 	defer ui.Close()
 
-	datetimePara := widgets.NewParagraph()
-	datetimePara.Title = " Today "
-	datetimePara.Text = getBanner(time.Now())
-	datetimePara.WrapText = true
-
-	quotePara := widgets.NewParagraph()
-	quotePara.Title = " Developer Wisdom "
-	quotePara.Text = getPaddedQuote(GetRandomQuote())
-	quotePara.WrapText = true
 
 	rows, _ := ReadFilesAndDirs("green")
 	fileTreeRowTbl := widgets.NewTable()
@@ -206,12 +160,9 @@ func run(tree *AVLTree, hc *cache.Cache) {
 
 	keyboardList := widgets.NewParagraph()
 	keyboardList.Title = " Keyboard Shortcuts "
-	keyboardList.Text = `[<enter>](fg:green) -> Execute a selected command and quit
-[<ctrl> + r](fg:green) -> Reset command input
-[<tab>](fg:green) -> Switch b/w call history and Help
-[<up>/<down>](fg:green) -> Move up or down to select content and view help text
-[<ctrl> + u](fg:green) -> Insert selected command to edit
-[<esc>](fg:green) or [<ctrl> + c](fg:green) -> Quit Recaller`
+	keyboardList.Text = `[<enter>](fg:green) Execute command  [<ctrl+r>](fg:green) Reset input  [<tab>](fg:green) Switch panels  [<up/down>](fg:green) Navigate  [<ctrl+u>](fg:green) Insert command  [<ctrl+j/k>](fg:green) Jump first/last  [<F1>](fg:green) Show help  [<ctrl+z>](fg:green) Copy text  [<esc>](fg:green) Quit`
+	keyboardList.TextStyle.Fg = ui.ColorWhite
+	keyboardList.BorderStyle.Fg = ui.ColorWhite
 
 	// 1. Create the input paragraph
 	inputPara := widgets.NewParagraph()
@@ -245,11 +196,10 @@ func run(tree *AVLTree, hc *cache.Cache) {
 
 	// === Layout with Grid ===
 	termWidth, termHeight := ui.TerminalDimensions()
-	headerRatio := computeHeaderRatio(termHeight)
 	grid := ui.NewGrid()
 	grid.SetRect(0, 0, termWidth, termHeight)
 
-	showHelpWidget(grid, inputPara, suggestionList, helpList, datetimePara, quotePara, aiResponsePara, headerRatio)
+	showHelpWidget(grid, inputPara, suggestionList, helpList, aiResponsePara, keyboardList)
 	// 4. Render initial UI
 	ui.Render(grid)
 
@@ -257,29 +207,51 @@ func run(tree *AVLTree, hc *cache.Cache) {
 	uiEvents := ui.PollEvents()
 	inputBuffer := "" // We'll store typed characters here
 	selectedIndex := 0
+	lastSearchQuery := "" // Cache last search to avoid redundant operations
 
-	dateTi := time.NewTicker(1 * time.Second)
-	quoteTi := time.NewTicker(10 * time.Second)
 
-	// Perform a new prefix search whenever input changes (or arrows, etc.)
-	matches := SearchWithRanking(tree, inputBuffer)
-	suggestionList.Rows = []string{}
-	for _, node := range matches {
-		suggestionList.Rows = append(suggestionList.Rows, fmt.Sprintf("%s", node.Command))
+	// Helper function to update search results
+	updateSearchResults := func(query string) {
+		if query == lastSearchQuery {
+			return // Skip if query hasn't changed
+		}
+		lastSearchQuery = query
+		matches := SearchWithRanking(tree, query)
+		suggestionList.Rows = suggestionList.Rows[:0] // Reuse slice to reduce allocations
+		for _, node := range matches {
+			suggestionList.Rows = append(suggestionList.Rows, node.Command)
+		}
+
+		// Update selectedIndex bounds
+		if selectedIndex >= len(suggestionList.Rows) {
+			selectedIndex = 0
+		}
+		if selectedIndex < 0 {
+			selectedIndex = 0
+		}
+		suggestionList.SelectedRow = selectedIndex
+		
+		// Auto-load help text for the selected command
+		if len(suggestionList.Rows) > 0 {
+			selectedCmd := suggestionList.Rows[selectedIndex]
+			helpList.SelectedRow = 0 // Reset help scroll to top
+			repaintHelpWidget(hc, helpList, selectedCmd)
+		}
+		
+		ui.Render(grid)
 	}
-	ui.Render(grid)
+
+	// Perform initial search
+	updateSearchResults(inputBuffer)
 	// Start a ticker to update clock on the app
 	go func() {
 		for {
 			select {
 			case <-done:
 				return
-			case t, _ := <-dateTi.C:
-				datetimePara.Text = getBanner(t)
-				ui.Render(datetimePara)
-			case <-quoteTi.C:
-				quotePara.Text = getPaddedQuote(GetRandomQuote())
-				ui.Render(quotePara)
+			case <-searchDebouncer.C:
+				// Debounced search execution
+				updateSearchResults(inputBuffer)
 			}
 		}
 	}()
@@ -307,9 +279,13 @@ func run(tree *AVLTree, hc *cache.Cache) {
 			if len(inputBuffer) > 0 {
 				inputBuffer = inputBuffer[:len(inputBuffer)-1]
 			}
+			// Reset and restart debounce timer
+			searchDebouncer.Reset(debounceDelay)
 		case "<Space>":
 			// Specifically handle space
 			inputBuffer += " "
+			// Reset and restart debounce timer
+			searchDebouncer.Reset(debounceDelay)
 		case "<Enter>":
 			ui.Close()
 			if len(suggestionList.Rows) > 0 {
@@ -329,11 +305,12 @@ func run(tree *AVLTree, hc *cache.Cache) {
 				// Move selection up in suggestionList
 				if selectedIndex > 0 {
 					selectedIndex--
+					suggestionList.SelectedRow = selectedIndex
 					selectedCmd := suggestionList.Rows[selectedIndex]
 					// Reset Help page to Top
 					helpList.SelectedRow = 0
 					repaintHelpWidget(hc, helpList, selectedCmd)
-					showHelpWidget(grid, inputPara, suggestionList, helpList, datetimePara, quotePara, aiResponsePara, headerRatio)
+					showHelpWidget(grid, inputPara, suggestionList, helpList, aiResponsePara, keyboardList)
 				}
 			}
 		case "<Down>":
@@ -345,11 +322,12 @@ func run(tree *AVLTree, hc *cache.Cache) {
 				// Move selection down in suggestionList
 				if selectedIndex < len(suggestionList.Rows)-1 {
 					selectedIndex++
+					suggestionList.SelectedRow = selectedIndex
 					selectedCmd := suggestionList.Rows[selectedIndex]
 					// Reset Help page to Top
 					helpList.SelectedRow = 0
 					repaintHelpWidget(hc, helpList, selectedCmd)
-					showHelpWidget(grid, inputPara, suggestionList, helpList, datetimePara, quotePara, aiResponsePara, headerRatio)
+					showHelpWidget(grid, inputPara, suggestionList, helpList, aiResponsePara, keyboardList)
 				}
 			}
 		case "<F1>":
@@ -362,7 +340,7 @@ func run(tree *AVLTree, hc *cache.Cache) {
 			}
 
 			repaintHelpWidget(hc, helpList, selectedCmd)
-			showHelpWidget(grid, inputPara, suggestionList, helpList, datetimePara, quotePara, aiResponsePara, headerRatio)
+			showHelpWidget(grid, inputPara, suggestionList, helpList, aiResponsePara, keyboardList)
 		case "<C-u>":
 			if !focusOnHelp {
 				inputBuffer = suggestionList.Rows[selectedIndex]
@@ -374,7 +352,10 @@ func run(tree *AVLTree, hc *cache.Cache) {
 		case "<C-j>":
 			// Go to the last line
 			if !focusOnHelp {
-				suggestionList.SelectedRow = len(suggestionList.Rows) - 1
+				if len(suggestionList.Rows) > 0 {
+					selectedIndex = len(suggestionList.Rows) - 1
+					suggestionList.SelectedRow = selectedIndex
+				}
 			} else {
 				if len(helpList.Rows) > 0 {
 					helpList.SelectedRow = len(helpList.Rows) - 1
@@ -432,7 +413,8 @@ func run(tree *AVLTree, hc *cache.Cache) {
 		case "<C-k>":
 			// Go to the first line
 			if !focusOnHelp {
-				suggestionList.SelectedRow = 0
+				selectedIndex = 0
+				suggestionList.SelectedRow = selectedIndex
 			} else {
 				if len(helpList.Rows) > 0 {
 					helpList.SelectedRow = 0
@@ -442,13 +424,11 @@ func run(tree *AVLTree, hc *cache.Cache) {
 			// Adjust layout when the terminal size changes
 			if payload, ok := e.Payload.(ui.Resize); ok {
 				grid.SetRect(0, 0, payload.Width, payload.Height)
-				headerRatio = computeHeaderRatio(payload.Height)
 			} else {
 				termWidth, termHeight := ui.TerminalDimensions()
 				grid.SetRect(0, 0, termWidth, termHeight)
-				headerRatio = computeHeaderRatio(termHeight)
 			}
-			showHelpWidget(grid, inputPara, suggestionList, helpList, datetimePara, quotePara, aiResponsePara, headerRatio)
+			showHelpWidget(grid, inputPara, suggestionList, helpList, aiResponsePara, keyboardList)
 			ui.Clear()
 			ui.Render(grid)
 		default:
@@ -457,35 +437,16 @@ func run(tree *AVLTree, hc *cache.Cache) {
 				if e.Type == ui.KeyboardEvent && len(e.ID) == 1 {
 					// Add typed character to input
 					inputBuffer += e.ID
+					// Reset and restart debounce timer
+					searchDebouncer.Reset(debounceDelay)
 				}
-			}
-
-			if len(suggestionList.Rows) > 0 {
-				repaintHelpWidget(hc, helpList, suggestionList.Rows[0])
-				showHelpWidget(grid, inputPara, suggestionList, helpList, datetimePara, quotePara, aiResponsePara, headerRatio)
 			}
 		}
 
 		// Update the paragraph to show the current input
 		inputPara.Text = inputBuffer
 
-		// Perform a new prefix search whenever input changes (or arrows, etc.)
-		matches := SearchWithRanking(tree, inputBuffer)
-		suggestionList.Rows = []string{}
-		for _, node := range matches {
-			suggestionList.Rows = append(suggestionList.Rows, fmt.Sprintf("%s", node.Command))
-		}
-
-		// Make sure the selectedIndex is still valid
-		if selectedIndex >= len(suggestionList.Rows) {
-			selectedIndex = 0
-		}
-		if selectedIndex < 0 {
-			selectedIndex = 0
-		}
-		suggestionList.SelectedRow = selectedIndex
-
-		// Re-render all widgets
+		// Re-render UI (search results updated via debouncer)
 		ui.Render(grid)
 	}
 }

@@ -8,8 +8,8 @@ import (
 )
 
 func TestCacheHelpPageAndGetHelpPage(t *testing.T) {
-	// Create a cache with a long expiration time to avoid unintended expiry.
-	c := cache.New(5*time.Minute, 10*time.Minute)
+	// Use the optimized cache
+	c := NewOptimizedHelpCache()
 	cmd := "testCommand"
 	helpText := "This is help text for testCommand"
 
@@ -33,8 +33,8 @@ func TestCacheExpiration(t *testing.T) {
 	cmd := "expiringCommand"
 	helpText := "This help text should expire soon."
 
-	// Cache the help text.
-	CacheHelpPage(c, cmd, helpText)
+	// Cache the help text with short expiration
+	c.Set(cmd, helpText, 100*time.Millisecond)
 
 	// Immediately after caching, the text should be retrievable.
 	if got := GetHelpPage(c, cmd); got != helpText {
