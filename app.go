@@ -15,6 +15,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -25,6 +26,11 @@ import (
 	"github.com/gizak/termui/v3/widgets"
 	tb "github.com/nsf/termbox-go"
 	"github.com/patrickmn/go-cache"
+)
+
+const (
+	Green = "\033[32m"
+	Reset = "\033[0m"
 )
 
 // DisableMouseInput in termbox-go. This should be called after ui.Init()
@@ -366,15 +372,15 @@ func run(tree *AVLTree, hc *cache.Cache) {
 			} else {
 				commandToCopy = inputBuffer
 			}
-
 			if commandToCopy != "" {
 				if err := clipboard.WriteAll(commandToCopy); err != nil {
 					log.Printf("Failed to copy command to clipboard: %v", err)
-				} else {
-					fmt.Printf("📋 Copied `%s` to clipboard\n", commandToCopy)
 				}
 			}
 			ui.Close()
+			if commandToCopy != "" {
+				fmt.Fprintf(os.Stderr, "📋 Copied %s%s%s to clipboard.\n", Green, commandToCopy, Reset)
+			}
 			return
 		case "<C-e>":
 			// Ctrl+E to send command directly to terminal
