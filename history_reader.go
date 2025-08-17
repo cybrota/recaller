@@ -43,9 +43,18 @@ func readZshHistoryWithEpoch() ([]HistoryEntry, error) {
 	}
 	defer file.Close()
 
+	// Pre-allocate history slice with estimated capacity
 	var history []HistoryEntry
+	if stat, err := file.Stat(); err == nil {
+		// Estimate ~50 bytes per line average
+		estimatedLines := int(stat.Size() / 50)
+		history = make([]HistoryEntry, 0, estimatedLines)
+	}
 
 	scanner := bufio.NewScanner(file)
+	// Increase buffer size for better performance with large history files
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if !strings.HasPrefix(line, ": ") {
@@ -117,10 +126,19 @@ func readBashHistoryWithEpoch() ([]HistoryEntry, error) {
 	}
 	defer file.Close()
 
+	// Pre-allocate history slice with estimated capacity
 	var history []HistoryEntry
+	if stat, err := file.Stat(); err == nil {
+		// Estimate ~30 bytes per line average for bash
+		estimatedLines := int(stat.Size() / 30)
+		history = make([]HistoryEntry, 0, estimatedLines)
+	}
 	var lastTimestamp *time.Time
 
 	scanner := bufio.NewScanner(file)
+	// Increase buffer size for better performance with large history files
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
 
@@ -186,27 +204,37 @@ func readHistoryAndPopulateTree(tree *AVLTree) error {
 		log.Fatalf("Unknown shell: %s detected. Aborting.", s)
 	}
 
-	// Initialize a map to track command frequencies
-	freqMap := make(map[string]int)
+	if err != nil {
+		return err
+	}
 
-	for _, hist := range history {
-		if hist.Timestamp != nil {
+	// Optimize: Pre-allocate frequency map with estimated capacity
+	// and track most recent timestamp per command for efficiency
+	freqMap := make(map[string]int, len(history)/4) // Estimate unique commands
+	lastTimestamp := make(map[string]*time.Time, len(history)/4)
+
+	// Process history in reverse to get most recent timestamps efficiently
+	for i := len(history) - 1; i >= 0; i-- {
+		hist := history[i]
+		if hist.Timestamp != nil && hist.Command != "" {
 			// Update frequency count
-			freq, exists := freqMap[hist.Command]
-			if exists {
-				freqMap[hist.Command] = freq + 1
-			} else {
-				freqMap[hist.Command] = 1
-			}
+			freqMap[hist.Command]++
 
-			// Insert into AVL tree with updated metadata
-			metadata := CommandMetadata{
-				Command:   hist.Command,
-				Timestamp: hist.Timestamp,
-				Frequency: freqMap[hist.Command], // Use the updated frequency count
+			// Keep only the most recent timestamp per command
+			if lastTimestamp[hist.Command] == nil || hist.Timestamp.After(*lastTimestamp[hist.Command]) {
+				lastTimestamp[hist.Command] = hist.Timestamp
 			}
-			tree.Insert(hist.Command, metadata)
 		}
+	}
+
+	// Insert into AVL tree with optimized metadata (single pass)
+	for command, frequency := range freqMap {
+		metadata := CommandMetadata{
+			Command:   command,
+			Timestamp: lastTimestamp[command],
+			Frequency: frequency,
+		}
+		tree.Insert(command, metadata)
 	}
 
 	return nil

@@ -170,15 +170,19 @@ func getCommandHelp(cmdParts []string) (string, error) {
 
 		var buf bytes.Buffer
 		manCmd.Stdout = &buf
-		// Start both commands.
+		// Start command and capture output.
 		if err := manCmd.Start(); err != nil {
 			return "", fmt.Errorf("failed to start man command: %v", err)
 		}
-		// Wait for the man command to finish, then close the writer.
 		if err := manCmd.Wait(); err != nil {
 			return "", fmt.Errorf("man command failed: %v", err)
 		}
-		return removeOverstrike(buf.String()), nil
+		output := buf.String()
+		// Handle minimal environments where man prints a placeholder message.
+		if strings.Contains(output, "No manual entry") || strings.Contains(output, "has been minimized") {
+			return "", fmt.Errorf("man page not found for command %q", baseCmd)
+		}
+		return removeOverstrike(output), nil
 	}
 
 	// For other commands, try common help flags.

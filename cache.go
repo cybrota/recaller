@@ -14,10 +14,24 @@ package main
 
 import (
 	"github.com/patrickmn/go-cache"
+	"time"
 )
 
+const (
+	// Cache help pages for 30 minutes instead of default (which can be much longer)
+	helpCacheExpiration = 30 * time.Minute
+	// Clean up expired entries every 5 minutes
+	helpCacheCleanup = 5 * time.Minute
+)
+
+// NewOptimizedHelpCache creates a cache optimized for help text storage
+func NewOptimizedHelpCache() *cache.Cache {
+	return cache.New(helpCacheExpiration, helpCacheCleanup)
+}
+
 func CacheHelpPage(c *cache.Cache, cmd string, helpTxt string) {
-	c.Add(cmd, helpTxt, cache.DefaultExpiration)
+	// Use Set instead of Add to allow overwriting (more efficient for repeated commands)
+	c.Set(cmd, helpTxt, helpCacheExpiration)
 }
 
 func GetHelpPage(c *cache.Cache, cmd string) string {

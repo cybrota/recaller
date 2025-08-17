@@ -17,7 +17,6 @@ import (
 	"log"
 	"strings"
 
-	"github.com/patrickmn/go-cache"
 	"github.com/spf13/cobra"
 )
 
@@ -40,7 +39,7 @@ func main() {
 		Args:  cobra.MinimumNArgs(0),
 		Run: func(cmd *cobra.Command, args []string) {
 			// Parse the command-line flags
-			helpCache := cache.New(cache.DefaultExpiration, cache.DefaultExpiration)
+			helpCache := NewOptimizedHelpCache()
 
 			tree := NewAVLTree()
 			if err := readHistoryAndPopulateTree(tree); err != nil {
