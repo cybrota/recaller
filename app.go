@@ -1,20 +1,23 @@
-// app.go
-
-/**
- * Copyright (C) Naren Yellavula - All Rights Reserved
- *
- * This source code is protected under international copyright law.  All rights
- * reserved and protected by the copyright holders.
- * This file is confidential and only available to authorized individuals with the
- * permission of the copyright holders.  If you encounter this file and do not have
- * permission, please contact the copyright holders and delete this file.
- */
+// Copyright 2025 Naren Yellavula
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package main
 
 import (
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -25,6 +28,11 @@ import (
 	"github.com/gizak/termui/v3/widgets"
 	tb "github.com/nsf/termbox-go"
 	"github.com/patrickmn/go-cache"
+)
+
+const (
+	Green = "\033[32m"
+	Reset = "\033[0m"
 )
 
 // DisableMouseInput in termbox-go. This should be called after ui.Init()
@@ -159,14 +167,14 @@ func showAIWidget(
 ) {
 	helpList.Rows = []string{}
 	grid.Set(
-		ui.NewRow(0.95,
+		ui.NewRow(0.93,
 			ui.NewCol(0.3,
 				ui.NewRow(0.2, inputPara),
-				ui.NewRow(0.8, suggestionList),
+				ui.NewRow(0.82, suggestionList), // 0.82 for fill empty padding forced by keyboard widget
 			),
-			ui.NewCol(0.7, aiResponsePara),
+			ui.NewCol(0.7, helpList),
 		),
-		ui.NewRow(0.05, keyboardList),
+		ui.NewRow(0.07, keyboardList),
 	)
 }
 
@@ -180,14 +188,14 @@ func showHelpWidget(
 ) {
 	aiResponsePara.Text = ""
 	grid.Set(
-		ui.NewRow(0.95,
+		ui.NewRow(0.93,
 			ui.NewCol(0.3,
 				ui.NewRow(0.2, inputPara),
-				ui.NewRow(0.8, suggestionList),
+				ui.NewRow(0.82, suggestionList), // 0.82 for fill empty padding forced by keyboard widget
 			),
 			ui.NewCol(0.7, helpList),
 		),
-		ui.NewRow(0.05, keyboardList),
+		ui.NewRow(0.07, keyboardList),
 	)
 }
 
@@ -366,15 +374,15 @@ func run(tree *AVLTree, hc *cache.Cache) {
 			} else {
 				commandToCopy = inputBuffer
 			}
-
 			if commandToCopy != "" {
 				if err := clipboard.WriteAll(commandToCopy); err != nil {
 					log.Printf("Failed to copy command to clipboard: %v", err)
-				} else {
-					fmt.Printf("📋 Copied `%s` to clipboard\n", commandToCopy)
 				}
 			}
 			ui.Close()
+			if commandToCopy != "" {
+				fmt.Fprintf(os.Stderr, "📋 Copied %s%s%s to clipboard.\n", Green, commandToCopy, Reset)
+			}
 			return
 		case "<C-e>":
 			// Ctrl+E to send command directly to terminal
