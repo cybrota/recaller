@@ -37,15 +37,25 @@ Recaller is an intelligent command-line tool that revolutionizes how you interac
 
 ### Installation
 
-#### Option 1: Download Binary (Recommended)
+#### Option 1: Install Script (Recommended)
 ```bash
-# Download the latest release for your platform
-curl -L https://github.com/cybrota/recaller/releases/latest/download/recaller-$(uname -s)-$(uname -m) -o recaller
-chmod +x recaller
-sudo mv recaller /usr/local/bin/
+# Install the latest release automatically
+curl -sf https://raw.githubusercontent.com/cybrota/recaller/refs/heads/main/install.sh | sh
 ```
 
-#### Option 2: Build from Source
+#### Option 2: Download Binary
+```bash
+# Download and extract the latest release for your platform
+PLATFORM=$(uname -s)
+ARCH=$(uname -m | sed 's/x86_64/x86_64/; s/aarch64/arm64/')
+curl -L https://github.com/cybrota/recaller/releases/latest/download/recaller_${PLATFORM}_${ARCH}.zip -o recaller.zip
+unzip recaller.zip
+chmod +x recaller
+sudo mv recaller /usr/local/bin/
+rm recaller.zip
+```
+
+#### Option 3: Build from Source
 ```bash
 # Prerequisites: Go 1.18+
 git clone https://github.com/cybrota/recaller.git
