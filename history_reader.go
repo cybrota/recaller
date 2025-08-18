@@ -41,6 +41,9 @@ func readZshHistoryWithEpoch() ([]HistoryEntry, error) {
 
 	file, err := os.Open(zshHistoryPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("zsh history file not found. Run some commands in zsh to create %s, then try again", zshHistoryPath)
+		}
 		return nil, err
 	}
 	defer file.Close()
@@ -124,6 +127,9 @@ func readBashHistoryWithEpoch() ([]HistoryEntry, error) {
 
 	file, err := os.Open(historyPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("bash history file not found. Run 'history -w' to create %s, then try again", historyPath)
+		}
 		return nil, err
 	}
 	defer file.Close()
@@ -179,10 +185,8 @@ func readBashHistoryWithEpoch() ([]HistoryEntry, error) {
 func detectCurrentShell() (string, error) {
 	currentShellPath, ok := os.LookupEnv("SHELL")
 	if !ok {
-		return "", fmt.Errorf(
-			"SHELL environment variable not set. Set it with `export SHELL=bash` or `export SHELL=zsh`" +
-				"",
-		)
+		// Default to bash when SHELL is not set
+		return "bash", nil
 	}
 
 	// Extract shell name from executable path (e.g., "/bin/zsh" -> "zsh")
