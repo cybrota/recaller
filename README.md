@@ -26,6 +26,12 @@ Recaller searches your shell history locally with smart ranking, instant help lo
 curl -sf https://raw.githubusercontent.com/cybrota/recaller/refs/heads/main/install.sh | sh
 ```
 
+**Or via HomeBrew (Ideal for macOS users)**
+```bash
+brew tap cybrota/cybrota
+brew install recaller
+```
+
 **Or build from source** (requires Go 1.18+)
 ```bash
 git clone https://github.com/cybrota/recaller.git
