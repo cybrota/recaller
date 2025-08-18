@@ -30,10 +30,10 @@ func main() {
 ██╔══██╗██╔══╝  ██║     ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗
 ██║  ██║███████╗╚██████╗██║  ██║███████╗███████╗███████╗██║  ██║
 ╚═╝  ╚═╝╚══════╝ ╚═════╝╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝
-Blazing-fast command history search with instant documentation and terminal execution.
+Blazing-fast command history search with instant documentation and terminal execution [Version: %s%s%s]
 
-Copyright @ Naren Yellavula (Project Link: https://github.com/cybrota/recaller)
-Version: %s%s%s
+Copyright @ Naren Yellavula (Please give us a star ⭐ here: https://github.com/cybrota/recaller)
+
 `
 
 	asciiLogo = fmt.Sprintf(asciiLogo, Green, version, Reset)
