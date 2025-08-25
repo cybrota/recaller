@@ -48,8 +48,8 @@ type AVLTreeIFace interface {
 	Delete(key string)
 	Search(key string) (interface{}, bool)
 	SearchPrefix(prefix string) []*AVLNode
+	SearchFuzzy(query string) []*AVLNode
 	SearchPrefixMostRecent(prefix string) []*AVLNode
-	SearchWithRanking(tree *AVLTree, query string) []RankedCommand
 }
 
 type AVLTree struct {
@@ -334,9 +334,40 @@ func calculateScore(metadata CommandMetadata) (float64, error) {
 	return score, nil
 }
 
-func SearchWithRanking(tree *AVLTree, query string) []RankedCommand {
+// fuzzySearch performs in-order traversal and finds commands containing the query as substring
+func fuzzySearch(node *AVLNode, query string, results *[]*AVLNode) {
+	if node == nil {
+		return
+	}
+
+	// Traverse left subtree
+	fuzzySearch(node.Left, query, results)
+
+	// Check if current node contains the query as substring (case-insensitive)
+	if strings.Contains(strings.ToLower(node.Key), strings.ToLower(query)) {
+		*results = append(*results, node)
+	}
+
+	// Traverse right subtree
+	fuzzySearch(node.Right, query, results)
+}
+
+func (tree *AVLTree) SearchFuzzy(query string) []*AVLNode {
+	var results []*AVLNode
+	fuzzySearch(tree.Root, query, &results)
+	return results
+}
+
+func SearchWithRanking(tree *AVLTree, query string, enableFuzzing bool) []RankedCommand {
+	var nodes []*AVLNode
+
+	if enableFuzzing {
+		nodes = tree.SearchFuzzy(query)
+	} else {
+		nodes = tree.SearchPrefix(query)
+	}
+
 	// Pre-allocate slice with estimated capacity to reduce allocations
-	nodes := tree.SearchPrefix(query)
 	rankedCommands := make([]RankedCommand, 0, len(nodes))
 
 	// Traverse the tree to find matching commands

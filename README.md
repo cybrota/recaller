@@ -12,7 +12,9 @@ Recaller searches your shell history locally with smart ranking, instant help lo
 
 ## ✨ Features
 
-- **Smart Search**: Commands ranked by frequency and recency with fuzzy matching
+- **Smart Search**: Commands ranked by frequency and recency with configurable search modes
+  - **Fuzzy Search**: Substring matching anywhere in commands (default)
+  - **Prefix Search**: Fast matching of command beginnings (configurable)
 - **Instant Help**: View man pages and command documentation without leaving the interface
 - **Terminal Integration**: Copy to clipboard or execute in new terminal tabs
 - **Privacy First**: All processing happens locally - your history stays on your machine
@@ -44,12 +46,36 @@ cd recaller && go build -o recaller . && sudo mv recaller /usr/local/bin/
 - **Bash**: Follow [setup guide](docs/setup-bash.md) to enable timestamped history
 - **Zsh**: Works out of the box, see [setup guide](docs/setup-zsh.md) for optimization
 
+**Search Configuration** (Optional)
+Create `~/.recaller.yaml` to customize search behavior:
+```yaml
+history:
+  # Default: true (fuzzy search - matches substring anywhere)
+  enable_fuzzing: true
+
+  # Set to false for prefix-based search only
+  # enable_fuzzing: false
+```
+
 **Usage**
 ```bash
-recaller              # Launch interactive search
-recaller history      # View history with filtering
-recaller version      # Check version
+recaller                    # Launch interactive search
+recaller history            # View history with filtering
+recaller settings list      # View current configuration settings
+recaller version            # Check version
 ```
+
+## 🔍 Search Modes
+
+**Fuzzy Search** (Default)
+- Matches commands containing your search query **anywhere**
+- More intuitive and finds commands with keywords in any position
+- Example: `commit` matches `git commit -m "fix"`, `pre-commit run`, etc.
+
+**Prefix Search** (Configurable)
+- Matches commands that **start with** your search query
+- Fast and efficient for finding commands by their beginning
+- Example: `git` matches `git status`, `git commit`, etc.
 
 ## ⌨️ Keyboard Shortcuts
 
@@ -108,12 +134,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 Copyright © 2025 [Naren Yellavula](https://github.com/narenaryan)
-
-## 👨‍💻 Author
-
-**Naren Yellavula**
-- GitHub: [@narenaryan](https://github.com/narenaryan)
-- Website: [https://github.com/narenaryan](https://github.com/narenaryan)
 
 ## 🙏 Acknowledgments
 

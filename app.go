@@ -214,6 +214,13 @@ func run(tree *AVLTree, hc *cache.Cache) {
 	// co_key := os.Getenv("COHERE_API_KEY")
 	// client := cohereclient.NewClient(cohereclient.WithToken(co_key))
 
+	// Load configuration
+	config, err := LoadConfig()
+	if err != nil {
+		log.Printf("Failed to load configuration: %v. Using default settings.", err)
+		config = &Config{History: HistoryConfig{EnableFuzzing: true}}
+	}
+
 	// Done channel for ticker
 	done := make(chan bool)
 
@@ -297,7 +304,7 @@ func run(tree *AVLTree, hc *cache.Cache) {
 			return // Skip if query hasn't changed
 		}
 		lastSearchQuery = query
-		matches := SearchWithRanking(tree, query)
+		matches := SearchWithRanking(tree, query, config.History.EnableFuzzing)
 		suggestionList.Rows = suggestionList.Rows[:0] // Reuse slice to reduce allocations
 		for _, node := range matches {
 			suggestionList.Rows = append(suggestionList.Rows, node.Command)
@@ -558,10 +565,10 @@ func run(tree *AVLTree, hc *cache.Cache) {
 	}
 }
 
-// getSuggestions searches through file tree and returns list of macthes
+// getSuggestions searches through file tree and returns list of matches
 // of commandRecommendLimit length
-func getSuggestions(searchStr string, tree *AVLTree) []string {
-	matches := SearchWithRanking(tree, searchStr)
+func getSuggestions(searchStr string, tree *AVLTree, enableFuzzing bool) []string {
+	matches := SearchWithRanking(tree, searchStr, enableFuzzing)
 	results := []string{}
 
 	count := 0
