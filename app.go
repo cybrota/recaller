@@ -218,7 +218,7 @@ func run(tree *AVLTree, hc *cache.Cache) {
 	config, err := LoadConfig()
 	if err != nil {
 		log.Printf("Failed to load configuration: %v. Using default settings.", err)
-		config = &Config{EnableFuzzing: false}
+		config = &Config{History: HistoryConfig{EnableFuzzing: true}}
 	}
 
 	// Done channel for ticker
@@ -304,7 +304,7 @@ func run(tree *AVLTree, hc *cache.Cache) {
 			return // Skip if query hasn't changed
 		}
 		lastSearchQuery = query
-		matches := SearchWithRanking(tree, query, config.EnableFuzzing)
+		matches := SearchWithRanking(tree, query, config.History.EnableFuzzing)
 		suggestionList.Rows = suggestionList.Rows[:0] // Reuse slice to reduce allocations
 		for _, node := range matches {
 			suggestionList.Rows = append(suggestionList.Rows, node.Command)

@@ -81,15 +81,30 @@ Copyright @ Naren Yellavula (Please give us a star ⭐ here: https://github.com/
 			config, err := LoadConfig()
 			if err != nil {
 				log.Printf("Failed to load configuration: %v. Using default settings.", err)
-				config = &Config{EnableFuzzing: false}
+				config = &Config{History: HistoryConfig{EnableFuzzing: true}}
 			}
 
-			res := getSuggestions(cmd.Flag("match").Value.String(), tree, config.EnableFuzzing)
+			res := getSuggestions(cmd.Flag("match").Value.String(), tree, config.History.EnableFuzzing)
 			fmt.Println(strings.Join(res, "\n"))
 		},
 	}
 
 	cmdHistory.Flags().String("match", "", "match string prefix to look in history")
+
+	var cmdSettingsList = &cobra.Command{
+		Use:   "list",
+		Short: "List current configuration settings",
+		Long:  "Display all current configuration settings with their values",
+		Run: func(cmd *cobra.Command, args []string) {
+			displaySettings()
+		},
+	}
+
+	var cmdSettings = &cobra.Command{
+		Use:   "settings",
+		Short: "Manage Recaller configuration settings",
+		Long:  "Commands for viewing and managing Recaller configuration",
+	}
 
 	var cmdVersion = &cobra.Command{
 		Use:   "version",
@@ -115,6 +130,8 @@ Copyright @ Naren Yellavula (Please give us a star ⭐ here: https://github.com/
 			run(tree, helpCache)
 		},
 	}
-	rootCmd.AddCommand(cmdRun, cmdUsage, cmdVersion, cmdHistory)
+
+	cmdSettings.AddCommand(cmdSettingsList)
+	rootCmd.AddCommand(cmdRun, cmdUsage, cmdVersion, cmdHistory, cmdSettings)
 	rootCmd.Execute()
 }
