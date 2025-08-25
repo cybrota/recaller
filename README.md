@@ -133,12 +133,6 @@ limitations under the License.
 
 Copyright © 2025 [Naren Yellavula](https://github.com/narenaryan)
 
-## 👨‍💻 Author
-
-**Naren Yellavula**
-- GitHub: [@narenaryan](https://github.com/narenaryan)
-- Website: [https://github.com/narenaryan](https://github.com/narenaryan)
-
 ## 🙏 Acknowledgments
 
 - Built with [termui](https://github.com/gizak/termui) for the beautiful terminal interface
