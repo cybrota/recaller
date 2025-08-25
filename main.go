@@ -76,7 +76,15 @@ Copyright @ Naren Yellavula (Please give us a star ⭐ here: https://github.com/
 			if err := readHistoryAndPopulateTree(tree); err != nil {
 				log.Fatalf("Error reading history: %v", err)
 			}
-			res := getSuggestions(cmd.Flag("match").Value.String(), tree)
+
+			// Load configuration for fuzzy search
+			config, err := LoadConfig()
+			if err != nil {
+				log.Printf("Failed to load configuration: %v. Using default settings.", err)
+				config = &Config{EnableFuzzing: false}
+			}
+
+			res := getSuggestions(cmd.Flag("match").Value.String(), tree, config.EnableFuzzing)
 			fmt.Println(strings.Join(res, "\n"))
 		},
 	}
