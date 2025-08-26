@@ -62,6 +62,42 @@ URL="https://github.com/cybrota/recaller/releases/download/${RECALLER_VERSION}/$
 echo "Downloading recaller version ${RECALLER_VERSION} for ${PLATFORM}/${ARCH}..."
 curl -L -o /tmp/${FILE} "${URL}"
 
+# Download checksums file for verification
+CHECKSUMS_FILE="recaller_${RECALLER_VERSION}_checksums.txt"
+CHECKSUMS_URL="https://github.com/cybrota/recaller/releases/download/${RECALLER_VERSION}/${CHECKSUMS_FILE}"
+echo "Downloading checksums for verification..."
+curl -L -o /tmp/${CHECKSUMS_FILE} "${CHECKSUMS_URL}"
+
+# Verify the downloaded file's SHA256 checksum
+echo "Verifying SHA256 checksum..."
+cd /tmp
+if command -v sha256sum >/dev/null 2>&1; then
+    # Linux
+    EXPECTED_HASH=$(grep "${FILE}" "${CHECKSUMS_FILE}" | cut -d' ' -f1)
+    ACTUAL_HASH=$(sha256sum "${FILE}" | cut -d' ' -f1)
+elif command -v shasum >/dev/null 2>&1; then
+    # macOS
+    EXPECTED_HASH=$(grep "${FILE}" "${CHECKSUMS_FILE}" | cut -d' ' -f1)
+    ACTUAL_HASH=$(shasum -a 256 "${FILE}" | cut -d' ' -f1)
+else
+    echo "Warning: Neither sha256sum nor shasum found. Skipping checksum verification." >&2
+    echo "Consider installing coreutils for checksum verification." >&2
+    EXPECTED_HASH=""
+    ACTUAL_HASH=""
+fi
+
+if [ -n "$EXPECTED_HASH" ] && [ -n "$ACTUAL_HASH" ]; then
+    if [ "$EXPECTED_HASH" = "$ACTUAL_HASH" ]; then
+        echo "✅ Checksum verification passed"
+    else
+        echo "❌ Checksum verification failed!" >&2
+        echo "Expected: $EXPECTED_HASH" >&2
+        echo "Actual:   $ACTUAL_HASH" >&2
+        echo "This could indicate a corrupted or tampered download." >&2
+        exit 1
+    fi
+fi
+
 # Create a temporary directory for extraction.
 EXTRACT_DIR=$(mktemp -d)
 
@@ -84,7 +120,7 @@ echo "Installing recaller to ${INSTALL_DIR}..."
 $SUDO mv "${EXTRACT_DIR}/recaller" "${INSTALL_DIR}/recaller"
 
 # Clean up
-rm -rf "${EXTRACT_DIR}" /tmp/${FILE}
+rm -rf "${EXTRACT_DIR}" /tmp/${FILE} /tmp/${CHECKSUMS_FILE}
 
 echo "recaller has been installed successfully. Make sure ${INSTALL_DIR} is in your PATH."
 
