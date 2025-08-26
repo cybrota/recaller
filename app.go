@@ -19,6 +19,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -578,4 +579,413 @@ func getSuggestions(searchStr string, tree *AVLTree, enableFuzzing bool) []strin
 	}
 
 	return results
+}
+
+// openFileWithDefaultApp opens a file or directory with the system's default application
+func openFileWithDefaultApp(path string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", path).Start()
+	case "linux":
+		return exec.Command("xdg-open", path).Start()
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", path).Start()
+	default:
+		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+	}
+}
+
+// formatFileForDisplay formats a file path for display in the UI
+func formatFileForDisplay(file RankedFile) string {
+	var icon string
+	if file.Metadata.IsDirectory {
+		icon = "📁"
+	} else {
+		icon = "📄"
+	}
+
+	// Show relative path if it's under current directory
+	currentDir, _ := os.Getwd()
+	displayPath := file.Path
+	if relPath, err := filepath.Rel(currentDir, file.Path); err == nil && !strings.HasPrefix(relPath, "..") {
+		displayPath = relPath
+	}
+
+	// Truncate long paths
+	if len(displayPath) > 80 {
+		displayPath = "..." + displayPath[len(displayPath)-77:]
+	}
+
+	return fmt.Sprintf("%s %s", icon, displayPath)
+}
+
+// runFilesystemSearch launches the filesystem search UI
+func runFilesystemSearch(fsIndexer *FilesystemIndexer, config *Config) {
+	// Debouncing for search operations
+	searchDebouncer := time.NewTimer(0)
+	searchDebouncer.Stop()
+	const debounceDelay = 150 * time.Millisecond
+
+	if err := ui.Init(); err != nil {
+		log.Fatalf("failed to initialize termui: %v", err)
+	}
+	DisableMouseInput()
+	defer ui.Close()
+
+	keyboardList := widgets.NewParagraph()
+	keyboardList.Title = " Filesystem Search Shortcuts "
+	keyboardList.Text = `[<enter>](fg:green) Open file  [<ctrl+x>](fg:green) Copy path  [<ctrl+r>](fg:green) Reset input  [<up/down>](fg:green) Navigate  [<ctrl+j/k>](fg:green) Jump first/last  [<ctrl+t>](fg:green) Toggle filter  [<tab>](fg:green) Switch panels  [<esc>](fg:green) Quit`
+	keyboardList.TextStyle.Fg = ui.ColorWhite
+	keyboardList.BorderStyle.Fg = ui.ColorWhite
+
+	// Input paragraph
+	inputPara := widgets.NewParagraph()
+	inputPara.Title = " Search Files & Directories "
+	inputPara.Text = ""
+	inputPara.TextStyle.Bg = ui.ColorBlue
+	inputPara.TextStyle.Fg = ui.ColorBlack
+	inputPara.BorderStyle = ui.NewStyle(ui.ColorYellow)
+
+	// List to show matching files
+	fileList := widgets.NewList()
+	fileList.Title = " 📁 Files & Directories "
+	fileList.Rows = []string{"Type to search files and directories..."}
+	fileList.SelectedRow = 0
+	fileList.SelectedRowStyle = ui.NewStyle(ui.ColorBlack, ui.ColorGreen)
+	fileList.BorderStyle = ui.NewStyle(ui.ColorCyan)
+
+	// File metadata display
+	metadataList := widgets.NewList()
+	metadataList.Title = " 📋 File Info "
+	metadataList.Rows = []string{"Select a file to view details"}
+	metadataList.SelectedRow = 0
+	metadataList.SelectedRowStyle = ui.NewStyle(ui.ColorBlack, ui.ColorYellow)
+	metadataList.WrapText = true
+
+	// Layout setup
+	termWidth, termHeight := ui.TerminalDimensions()
+	grid := ui.NewGrid()
+	grid.SetRect(0, 0, termWidth, termHeight)
+
+	grid.Set(
+		ui.NewRow(0.93,
+			ui.NewCol(0.4,
+				ui.NewRow(0.2, inputPara),
+				ui.NewRow(0.8, fileList),
+			),
+			ui.NewCol(0.6, metadataList),
+		),
+		ui.NewRow(0.07, keyboardList),
+	)
+
+	ui.Render(grid)
+
+	focusOnMetadata := false
+	uiEvents := ui.PollEvents()
+	inputBuffer := ""
+	selectedIndex := 0
+	lastSearchQuery := ""
+	currentFiles := []RankedFile{}
+
+	// Filter modes: 0 = all, 1 = directories only, 2 = files only
+	filterMode := 0
+	filterModes := []string{"All", "Dirs", "Files"}
+	filterIcons := []string{"📁📄", "📁", "📄"}
+
+	// Done channel
+	done := make(chan bool)
+
+	// Helper function to update file list title based on filter mode
+	updateFileListTitle := func() {
+		fileList.Title = fmt.Sprintf(" %s %s ", filterIcons[filterMode], filterModes[filterMode])
+	}
+
+	// Helper function to update metadata display
+	var updateMetadataDisplay func()
+	updateMetadataDisplay = func() {
+		if len(currentFiles) == 0 || selectedIndex >= len(currentFiles) {
+			metadataList.Rows = []string{"Select a file to view details"}
+			return
+		}
+
+		file := currentFiles[selectedIndex]
+		metadata := []string{}
+
+		// File path
+		metadata = append(metadata, fmt.Sprintf("📍 Path: %s", file.Path))
+
+		// File type
+		if file.Metadata.IsDirectory {
+			metadata = append(metadata, "📁 Type: Directory")
+		} else {
+			ext := strings.ToUpper(filepath.Ext(file.Path))
+			if ext == "" {
+				ext = "FILE"
+			} else {
+				ext = ext[1:] // Remove dot
+			}
+			metadata = append(metadata, fmt.Sprintf("📄 Type: %s", ext))
+		}
+
+		// Access info
+		if file.Metadata.Timestamp != nil {
+			metadata = append(metadata, fmt.Sprintf("🕒 Last Accessed: %s", file.Metadata.Timestamp.Format("2006-01-02 15:04:05")))
+		}
+		metadata = append(metadata, fmt.Sprintf("📊 Access Count: %d", file.Metadata.AccessCount))
+		metadata = append(metadata, fmt.Sprintf("⭐ Score: %.2f", file.Score))
+
+		// File size (if not directory)
+		if !file.Metadata.IsDirectory && file.Metadata.Size > 0 {
+			size := formatFileSize(file.Metadata.Size)
+			metadata = append(metadata, fmt.Sprintf("💾 Size: %s", size))
+		}
+
+		// Last modified
+		if !file.Metadata.LastModified.IsZero() {
+			metadata = append(metadata, fmt.Sprintf("✏️  Modified: %s", file.Metadata.LastModified.Format("2006-01-02 15:04:05")))
+		}
+
+		// Additional flags
+		if file.Metadata.IsHidden {
+			metadata = append(metadata, "🔒 Hidden file")
+		}
+		if file.Metadata.IsSymlink {
+			metadata = append(metadata, "🔗 Symbolic link")
+		}
+
+		metadataList.Rows = metadata
+		metadataList.SelectedRow = 0
+	}
+
+	// Helper function to update file search results
+	updateFileResults := func(query string) {
+		// Only skip if both query and filter mode haven't changed
+		if query == lastSearchQuery {
+			return
+		}
+		lastSearchQuery = query
+
+		if query == "" {
+			fileList.Rows = []string{"Type to search files and directories..."}
+			currentFiles = []RankedFile{}
+		} else {
+			allFiles := fsIndexer.SearchFiles(query, config.History.EnableFuzzing)
+
+			// Apply filter based on filterMode
+			filteredFiles := []RankedFile{}
+			for _, file := range allFiles {
+				switch filterMode {
+				case 0: // All files and directories
+					filteredFiles = append(filteredFiles, file)
+				case 1: // Directories only
+					if file.Metadata.IsDirectory {
+						filteredFiles = append(filteredFiles, file)
+					}
+				case 2: // Files only
+					if !file.Metadata.IsDirectory {
+						filteredFiles = append(filteredFiles, file)
+					}
+				}
+			}
+
+			currentFiles = filteredFiles
+			fileList.Rows = fileList.Rows[:0]
+
+			for _, file := range filteredFiles {
+				fileList.Rows = append(fileList.Rows, formatFileForDisplay(file))
+			}
+
+			if len(fileList.Rows) == 0 {
+				filterText := filterModes[filterMode]
+				if filterMode == 0 {
+					fileList.Rows = []string{"No files found matching: " + query}
+				} else {
+					fileList.Rows = []string{fmt.Sprintf("No %s found matching: %s", strings.ToLower(filterText), query)}
+				}
+			}
+		}
+
+		// Update selected index bounds
+		if selectedIndex >= len(currentFiles) {
+			selectedIndex = 0
+		}
+		if selectedIndex < 0 {
+			selectedIndex = 0
+		}
+		fileList.SelectedRow = selectedIndex
+
+		// Update file list title and metadata display
+		updateFileListTitle()
+		updateMetadataDisplay()
+		ui.Render(grid)
+	}
+
+	// Start debouncer goroutine
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			case <-searchDebouncer.C:
+				updateFileResults(inputBuffer)
+			}
+		}
+	}()
+
+	// Set initial title and perform initial search
+	updateFileListTitle()
+	updateFileResults(inputBuffer)
+
+	for {
+		e := <-uiEvents
+		switch e.ID {
+		case "<C-c>", "<Escape>":
+			done <- true
+			return
+		case "<Tab>":
+			focusOnMetadata = !focusOnMetadata
+			if focusOnMetadata {
+				fileList.BorderStyle = ui.NewStyle(ui.ColorWhite)
+				metadataList.BorderStyle = ui.NewStyle(ui.ColorCyan)
+			} else {
+				fileList.BorderStyle = ui.NewStyle(ui.ColorCyan)
+				metadataList.BorderStyle = ui.NewStyle(ui.ColorWhite)
+			}
+		case "<Backspace>":
+			if !focusOnMetadata && len(inputBuffer) > 0 {
+				inputBuffer = inputBuffer[:len(inputBuffer)-1]
+				searchDebouncer.Reset(debounceDelay)
+			}
+		case "<Space>":
+			if focusOnMetadata {
+				// Handle space in metadata view (scroll)
+				if metadataList.SelectedRow < len(metadataList.Rows)-1 {
+					metadataList.SelectedRow++
+				}
+			} else {
+				inputBuffer += " "
+				searchDebouncer.Reset(debounceDelay)
+			}
+		case "<Enter>":
+			if len(currentFiles) > selectedIndex && selectedIndex >= 0 {
+				filePath := currentFiles[selectedIndex].Path
+
+				// Update access count
+				fsIndexer.AddPath(filePath, time.Now())
+
+				// Open file with default app
+				if err := openFileWithDefaultApp(filePath); err != nil {
+					log.Printf("Failed to open file: %v", err)
+				} else {
+					fmt.Printf("🚀 Opened: %s\n", filePath)
+				}
+
+				// Persist updated index
+				go func() {
+					if err := fsIndexer.PersistIndex(); err != nil {
+						log.Printf("Failed to persist index: %v", err)
+					}
+				}()
+			}
+			ui.Close()
+			return
+		case "<C-x>":
+			// Copy file path to clipboard (changed to Ctrl+X to avoid conflict)
+			if len(currentFiles) > selectedIndex && selectedIndex >= 0 {
+				filePath := currentFiles[selectedIndex].Path
+				if err := clipboard.WriteAll(filePath); err != nil {
+					log.Printf("Failed to copy path: %v", err)
+				}
+				ui.Close()
+				fmt.Printf("📋 Copied path: %s\n", filePath)
+				return
+			}
+		case "<Up>":
+			if focusOnMetadata {
+				if metadataList.SelectedRow > 0 {
+					metadataList.SelectedRow--
+				}
+			} else {
+				if selectedIndex > 0 && len(currentFiles) > 0 {
+					selectedIndex--
+					fileList.SelectedRow = selectedIndex
+					updateMetadataDisplay()
+				}
+			}
+		case "<Down>":
+			if focusOnMetadata {
+				if metadataList.SelectedRow < len(metadataList.Rows)-1 {
+					metadataList.SelectedRow++
+				}
+			} else {
+				if selectedIndex < len(currentFiles)-1 && len(currentFiles) > 0 {
+					selectedIndex++
+					fileList.SelectedRow = selectedIndex
+					updateMetadataDisplay()
+				}
+			}
+		case "<C-r>":
+			if !focusOnMetadata {
+				inputBuffer = ""
+				searchDebouncer.Reset(debounceDelay)
+			}
+		case "<C-j>":
+			if !focusOnMetadata {
+				if len(currentFiles) > 0 {
+					selectedIndex = len(currentFiles) - 1
+					fileList.SelectedRow = selectedIndex
+					updateMetadataDisplay()
+				}
+			} else {
+				if len(metadataList.Rows) > 0 {
+					metadataList.SelectedRow = len(metadataList.Rows) - 1
+				}
+			}
+		case "<C-k>":
+			if !focusOnMetadata {
+				selectedIndex = 0
+				fileList.SelectedRow = selectedIndex
+				updateMetadataDisplay()
+			} else {
+				metadataList.SelectedRow = 0
+			}
+		case "<C-t>":
+			// Toggle filter mode: All -> Dirs -> Files -> All
+			filterMode = (filterMode + 1) % 3
+			// Force refresh by clearing lastSearchQuery
+			lastSearchQuery = ""
+			updateFileResults(inputBuffer)
+		case "<Resize>":
+			if payload, ok := e.Payload.(ui.Resize); ok {
+				grid.SetRect(0, 0, payload.Width, payload.Height)
+			} else {
+				termWidth, termHeight := ui.TerminalDimensions()
+				grid.SetRect(0, 0, termWidth, termHeight)
+			}
+			ui.Clear()
+			ui.Render(grid)
+		default:
+			if !focusOnMetadata && e.Type == ui.KeyboardEvent && len(e.ID) == 1 {
+				inputBuffer += e.ID
+				searchDebouncer.Reset(debounceDelay)
+			}
+		}
+
+		inputPara.Text = inputBuffer
+		ui.Render(grid)
+	}
+}
+
+// formatFileSize formats file size in human-readable format
+func formatFileSize(size int64) string {
+	const unit = 1024
+	if size < unit {
+		return fmt.Sprintf("%d B", size)
+	}
+	div, exp := int64(unit), 0
+	for n := size / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(size)/float64(div), "KMGTPE"[exp])
 }
