@@ -2,9 +2,9 @@
 
 ![Recaller Logo](logo.png)
 
-> **Fast, private command history search with instant documentation**
+> **Fast, private file & command history search with instant documentation**
 
-Recaller searches your shell history locally with smart ranking, instant help lookup, and terminal integration. All processing happens on your machine - your command history never leaves your computer.
+Recaller searches your files and shell history locally with smart ranking, instant help lookup, and terminal integration. All processing happens on your machine - your command history never leaves your computer.
 
 [![Go](https://img.shields.io/badge/Go-1.18+-blue.svg)](https://golang.org/dl/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](#license)
