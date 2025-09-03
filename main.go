@@ -130,6 +130,20 @@ Copyright @ Naren Yellavula (Please give us a star ⭐ here: https://github.com/
 				return
 			}
 
+			// Auto re-index existing paths to discover new files
+			rootPaths := fsIndexer.GetRootPaths()
+			if len(rootPaths) > 0 {
+				fmt.Printf("🔄 Re-indexing %d tracked paths to discover new files...\n", len(rootPaths))
+				if err := fsIndexer.ReindexExistingPaths(true); err != nil {
+					log.Printf("Warning: Re-indexing completed with errors: %v", err)
+				}
+
+				// Persist the updated index
+				if err := fsIndexer.PersistIndex(); err != nil {
+					log.Printf("Warning: Failed to persist updated index: %v", err)
+				}
+			}
+
 			// Show index statistics
 			fmt.Printf("📊 %s\n", fsIndexer.GetIndexStats())
 

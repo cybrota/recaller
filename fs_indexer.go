@@ -123,6 +123,7 @@ type FilesystemIndexer struct {
 	countMinSketch *CountMinSketch
 	pathRecords    []PathRecord
 	pathIndex      map[string]int // Maps path to index in pathRecords
+	rootPaths      []string       // Tracks root directories that were indexed
 	config         FilesystemConfig
 	isDirty        bool
 }
@@ -136,6 +137,7 @@ func NewFilesystemIndexer(config FilesystemConfig) *FilesystemIndexer {
 		countMinSketch: countMinSketch,
 		pathRecords:    make([]PathRecord, 0, config.MaxIndexedFiles),
 		pathIndex:      make(map[string]int),
+		rootPaths:      make([]string, 0),
 		config:         config,
 		isDirty:        false,
 	}
@@ -242,6 +244,10 @@ func (fi *FilesystemIndexer) IndexDirectories(rootPaths []string) error {
 
 func (fi *FilesystemIndexer) IndexDirectoryWithProgress(rootPath string, showProgress bool) error {
 	log.Printf("Starting filesystem indexing for: %s", rootPath)
+
+	// Track this root path if not already tracked
+	fi.addRootPath(rootPath)
+
 	count := 0
 
 	var bar *progressbar.ProgressBar
@@ -341,6 +347,9 @@ func (fi *FilesystemIndexer) IndexDirectoriesWithProgress(rootPaths []string, sh
 			overallBar.Describe(fmt.Sprintf("📁 [%d/%d] %s", i+1, len(rootPaths), filepath.Base(rootPath)))
 		}
 
+		// Track this root path if not already tracked
+		fi.addRootPath(rootPath)
+
 		log.Printf("Starting filesystem indexing for directory %d/%d: %s", i+1, len(rootPaths), rootPath)
 		count := 0
 
@@ -427,6 +436,63 @@ func (fi *FilesystemIndexer) shouldSkipPath(path string) bool {
 	}
 
 	return false
+}
+
+// addRootPath adds a root path to tracking if not already present
+func (fi *FilesystemIndexer) addRootPath(rootPath string) {
+	// Convert to absolute path for consistency
+	absPath, err := filepath.Abs(rootPath)
+	if err != nil {
+		absPath = rootPath
+	}
+
+	// Check if already tracked
+	for _, existing := range fi.rootPaths {
+		if existing == absPath {
+			return
+		}
+	}
+
+	// Add new root path
+	fi.rootPaths = append(fi.rootPaths, absPath)
+	fi.isDirty = true
+}
+
+// GetRootPaths returns a copy of the tracked root paths
+func (fi *FilesystemIndexer) GetRootPaths() []string {
+	result := make([]string, len(fi.rootPaths))
+	copy(result, fi.rootPaths)
+	return result
+}
+
+// ReindexExistingPaths re-indexes all tracked root paths to discover new files
+func (fi *FilesystemIndexer) ReindexExistingPaths(showProgress bool) error {
+	if len(fi.rootPaths) == 0 {
+		return nil
+	}
+
+	log.Printf("Re-indexing %d tracked root paths to discover new files", len(fi.rootPaths))
+
+	// Filter out root paths that no longer exist
+	var validRootPaths []string
+	for _, rootPath := range fi.rootPaths {
+		if _, err := os.Stat(rootPath); err == nil {
+			validRootPaths = append(validRootPaths, rootPath)
+		} else {
+			log.Printf("Skipping non-existent root path: %s", rootPath)
+		}
+	}
+
+	if len(validRootPaths) == 0 {
+		return nil
+	}
+
+	// Update root paths to only valid ones
+	fi.rootPaths = validRootPaths
+	fi.isDirty = true
+
+	// Re-index all valid root paths
+	return fi.IndexDirectoriesWithProgress(validRootPaths, showProgress)
 }
 
 func (fi *FilesystemIndexer) SearchFiles(query string, enableFuzzy bool) []RankedFile {
@@ -526,8 +592,10 @@ func (fi *FilesystemIndexer) calculateFileScore(metadata FileMetadata) float64 {
 //   - Magic number (8 bytes): "RECALLER"
 //   - Version (4 bytes): uint32
 //   - Record count (4 bytes): uint32
-//   - Bloom filter size (4 bytes): uint32
+//   - Root path count (4 bytes): uint32
 //   - Reserved (12 bytes)
+// Root paths section (variable size):
+//   - Each root path: length (4 bytes) + path string
 // Bloom filter data (variable size)
 // Count-Min Sketch (32KB fixed size: 4 * 2048 * 4 bytes)
 // Path records (525 bytes each, fixed size)
@@ -541,9 +609,9 @@ func (fi *FilesystemIndexer) SaveToFile(filePath string) error {
 
 	// Write header
 	magic := [8]byte{'R', 'E', 'C', 'A', 'L', 'L', 'E', 'R'}
-	version := uint32(1)
+	version := uint32(2) // Increment version to support root paths
 	recordCount := uint32(len(fi.pathRecords))
-	bloomSize := uint32(0) // Will be calculated dynamically
+	rootPathCount := uint32(len(fi.rootPaths))
 	reserved := [12]byte{}
 
 	if err := binary.Write(file, binary.LittleEndian, magic); err != nil {
@@ -555,11 +623,23 @@ func (fi *FilesystemIndexer) SaveToFile(filePath string) error {
 	if err := binary.Write(file, binary.LittleEndian, recordCount); err != nil {
 		return err
 	}
-	if err := binary.Write(file, binary.LittleEndian, bloomSize); err != nil {
+	if err := binary.Write(file, binary.LittleEndian, rootPathCount); err != nil {
 		return err
 	}
 	if err := binary.Write(file, binary.LittleEndian, reserved); err != nil {
 		return err
+	}
+
+	// Write root paths
+	for _, rootPath := range fi.rootPaths {
+		pathBytes := []byte(rootPath)
+		pathLen := uint32(len(pathBytes))
+		if err := binary.Write(file, binary.LittleEndian, pathLen); err != nil {
+			return err
+		}
+		if _, err := file.Write(pathBytes); err != nil {
+			return err
+		}
 	}
 
 	// Write bloom filter
@@ -592,7 +672,7 @@ func (fi *FilesystemIndexer) LoadFromFile(filePath string) error {
 
 	// Read and verify header
 	var magic [8]byte
-	var version, recordCount, bloomSize uint32
+	var version, recordCount, rootPathCount uint32
 	var reserved [12]byte
 
 	if err := binary.Read(file, binary.LittleEndian, &magic); err != nil {
@@ -605,18 +685,44 @@ func (fi *FilesystemIndexer) LoadFromFile(filePath string) error {
 	if err := binary.Read(file, binary.LittleEndian, &version); err != nil {
 		return err
 	}
-	if version != 1 {
+	if version != 1 && version != 2 {
 		return fmt.Errorf("unsupported file version: %d", version)
 	}
 
 	if err := binary.Read(file, binary.LittleEndian, &recordCount); err != nil {
 		return err
 	}
-	if err := binary.Read(file, binary.LittleEndian, &bloomSize); err != nil {
-		return err
+
+	// Handle version differences
+	if version == 2 {
+		if err := binary.Read(file, binary.LittleEndian, &rootPathCount); err != nil {
+			return err
+		}
+	} else {
+		// Version 1 compatibility - read old bloomSize field but ignore it
+		var bloomSize uint32
+		if err := binary.Read(file, binary.LittleEndian, &bloomSize); err != nil {
+			return err
+		}
+		rootPathCount = 0
 	}
+
 	if err := binary.Read(file, binary.LittleEndian, &reserved); err != nil {
 		return err
+	}
+
+	// Read root paths (only in version 2+)
+	fi.rootPaths = make([]string, 0, rootPathCount)
+	for i := uint32(0); i < rootPathCount; i++ {
+		var pathLen uint32
+		if err := binary.Read(file, binary.LittleEndian, &pathLen); err != nil {
+			return err
+		}
+		pathBytes := make([]byte, pathLen)
+		if _, err := file.Read(pathBytes); err != nil {
+			return err
+		}
+		fi.rootPaths = append(fi.rootPaths, string(pathBytes))
 	}
 
 	// Read bloom filter
@@ -855,6 +961,7 @@ func (fi *FilesystemIndexer) FullCleanup(olderThanDays int, showProgress bool) (
 func (fi *FilesystemIndexer) ClearIndex() error {
 	fi.pathRecords = fi.pathRecords[:0]
 	fi.pathIndex = make(map[string]int)
+	fi.rootPaths = fi.rootPaths[:0]
 	fi.bloomFilter = bloom.New(fi.config.BloomFilterSize, fi.config.BloomFilterHashes)
 	fi.countMinSketch = NewCountMinSketch()
 	fi.isDirty = true
