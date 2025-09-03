@@ -26,13 +26,39 @@ type HistoryConfig struct {
 	EnableFuzzing bool `yaml:"enable_fuzzing"`
 }
 
+type FilesystemConfig struct {
+	Enabled            bool     `yaml:"enabled"`
+	IndexDirectories   []string `yaml:"index_directories"`
+	IgnorePatterns     []string `yaml:"ignore_patterns"`
+	MaxIndexedFiles    int      `yaml:"max_indexed_files"`
+	BloomFilterSize    uint     `yaml:"bloom_filter_size"`
+	BloomFilterHashes  uint     `yaml:"bloom_filter_hashes"`
+	SketchWidth        int      `yaml:"sketch_width"`
+	SketchDepth        int      `yaml:"sketch_depth"`
+	AutoIndexOnStartup bool     `yaml:"auto_index_on_startup"`
+	IndexCacheDuration int      `yaml:"index_cache_duration_hours"`
+}
+
 type Config struct {
-	History HistoryConfig `yaml:"history"`
+	History    HistoryConfig    `yaml:"history"`
+	Filesystem FilesystemConfig `yaml:"filesystem"`
 }
 
 var defaultConfig = Config{
 	History: HistoryConfig{
 		EnableFuzzing: true,
+	},
+	Filesystem: FilesystemConfig{
+		Enabled:            false,
+		IndexDirectories:   []string{".", "~/Documents", "~/Projects"},
+		IgnorePatterns:     []string{"node_modules", ".git", "*.tmp", "*.log", ".DS_Store", "target", "build", "dist"},
+		MaxIndexedFiles:    50000,
+		BloomFilterSize:    1000000,
+		BloomFilterHashes:  7,
+		SketchWidth:        2048,
+		SketchDepth:        4,
+		AutoIndexOnStartup: false,
+		IndexCacheDuration: 24,
 	},
 }
 
@@ -102,6 +128,11 @@ func displaySettings() {
 		return
 	}
 
+	// If config has no filesystem settings, use defaults
+	if len(config.Filesystem.IndexDirectories) == 0 {
+		config.Filesystem = defaultConfig.Filesystem
+	}
+
 	configExists := true
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		configExists = false
@@ -137,12 +168,32 @@ func displaySettings() {
 	fmt.Printf("  • %senable_fuzzing%s: %s\n", Green, Reset, fuzzyValue)
 	fmt.Printf("    %s\n\n", fuzzyDesc)
 
+	fmt.Printf("📁 %sFilesystem Search:%s\n", Green, Reset)
+
+	fsEnabledValue := "false"
+	fsDesc := "Disabled - filesystem indexing is off"
+	if config.Filesystem.Enabled {
+		fsEnabledValue = "true"
+		fsDesc = fmt.Sprintf("Enabled - indexing up to %d files", config.Filesystem.MaxIndexedFiles)
+	}
+
+	fmt.Printf("  • %senabled%s: %s\n", Green, Reset, fsEnabledValue)
+	fmt.Printf("    %s\n", fsDesc)
+	fmt.Printf("  • %sindex_directories%s: %v\n", Green, Reset, config.Filesystem.IndexDirectories)
+	fmt.Printf("  • %smax_indexed_files%s: %d\n", Green, Reset, config.Filesystem.MaxIndexedFiles)
+	fmt.Printf("  • %sauto_index_on_startup%s: %t\n\n", Green, Reset, config.Filesystem.AutoIndexOnStartup)
+
 	if !config.History.EnableFuzzing {
 		fmt.Printf("💡 Fuzzy search is disabled. To enable it, edit %s:\n", configPath)
 		fmt.Printf("   history:\n     enable_fuzzing: true\n\n")
 	} else {
 		fmt.Printf("💡 To use prefix-only search, edit %s:\n", configPath)
 		fmt.Printf("   history:\n     enable_fuzzing: false\n\n")
+	}
+
+	if !config.Filesystem.Enabled {
+		fmt.Printf("💡 To enable filesystem search, edit %s:\n", configPath)
+		fmt.Printf("   filesystem:\n     enabled: true\n\n")
 	}
 
 	fmt.Printf("📚 For more information, see: https://github.com/cybrota/recaller#search-modes\n")

@@ -12,11 +12,22 @@ Recaller searches your shell history locally with smart ranking, instant help lo
 
 ## ✨ Features
 
+### 🔍 Command History Search
 - **Smart Search**: Commands ranked by frequency and recency with configurable search modes
   - **Fuzzy Search**: Substring matching anywhere in commands (default)
   - **Prefix Search**: Fast matching of command beginnings (configurable)
 - **Instant Help**: View man pages and command documentation without leaving the interface
 - **Terminal Integration**: Copy to clipboard or execute in new terminal tabs
+
+### 📁 Filesystem Search
+- **Multi-Directory Indexing**: Index multiple directories simultaneously for comprehensive file search
+- **Auto Re-indexing**: Automatically discovers new files when launching the search UI
+- **Smart File Ranking**: Files ranked by access frequency and recency
+- **Filter Toggle**: Instantly switch between showing all files, directories only, or files only
+- **Fast Search**: Blazing-fast search through indexed files and directories
+- **File Operations**: Open files with default applications or copy paths to clipboard
+
+### 🔒 Privacy & Performance  
 - **Privacy First**: All processing happens locally - your history stays on your machine
 - **Keyboard-Driven**: Full keyboard navigation with intuitive shortcuts
 - **Cross-Platform**: Works on macOS and Linux with automatic terminal detection
@@ -46,21 +57,62 @@ cd recaller && go build -o recaller . && sudo mv recaller /usr/local/bin/
 - **Bash**: Follow [setup guide](docs/setup-bash.md) to enable timestamped history
 - **Zsh**: Works out of the box, see [setup guide](docs/setup-zsh.md) for optimization
 
-**Search Configuration** (Optional)
+**Configuration** (Optional)
 Create `~/.recaller.yaml` to customize search behavior:
 ```yaml
 history:
   # Default: true (fuzzy search - matches substring anywhere)
   enable_fuzzing: true
-
   # Set to false for prefix-based search only
   # enable_fuzzing: false
+
+filesystem:
+  # Enable filesystem search functionality
+  enabled: true
+  # Maximum number of files to index (default: 100000)
+  max_indexed_files: 100000
+  # Bloom filter settings for memory efficiency
+  bloom_filter_size: 1000000
+  bloom_filter_hashes: 5
+  # Patterns to ignore during indexing
+  ignore_patterns:
+    - "*.tmp"
+    - "*.log"
+    - ".git"
+    - "node_modules"
+    - ".DS_Store"
 ```
 
-**Usage**
+## 💻 Usage
+
+### Command History Search
 ```bash
-recaller                    # Launch interactive search
+recaller                    # Launch interactive command history search
+recaller run                # Same as above
 recaller history            # View history with filtering
+```
+
+### Filesystem Search
+```bash
+# Index directories for filesystem search
+recaller fs index                    # Index current directory recursively
+recaller fs index ~/Documents        # Index specific directory recursively
+recaller fs index /usr/local ~/code  # Index multiple directories recursively
+
+# Launch filesystem search UI
+recaller fs                          # Launch search UI (auto re-indexes tracked paths)
+
+# Manage filesystem index  
+recaller fs clean --stale            # Remove entries for deleted files
+recaller fs clean --older-than 30    # Remove entries older than 30 days
+recaller fs clean --clear            # Clear entire index
+recaller fs clean --dry-run          # Preview what would be cleaned
+```
+
+> **🔄 Auto Re-indexing**: When you launch `recaller fs`, it automatically re-indexes all previously indexed directories to discover new files and folders that were added since the last indexing. This keeps your search results up-to-date without manual intervention.
+
+### Configuration
+```bash
 recaller settings list      # View current configuration settings
 recaller version            # Check version
 ```
@@ -79,11 +131,24 @@ recaller version            # Check version
 
 ## ⌨️ Keyboard Shortcuts
 
+### Command History Search
 | Key | Action | Key | Action |
 |-----|--------|-----|--------|
 | `Enter` | Copy to clipboard | `Ctrl+E` | Execute in terminal |
 | `↑/↓` | Navigate | `Tab` | Switch panels |
-| `F1` | Show help | `Esc` | Quit |
+| `F1` | Show help | `Ctrl+R` | Reset input |
+| `Ctrl+U` | Insert command | `Ctrl+Z` | Copy text |
+| `Ctrl+J/K` | Jump first/last | `Esc` | Quit |
+
+### Filesystem Search
+| Key | Action | Key | Action |
+|-----|--------|-----|--------|
+| `Enter` | Open file | `Ctrl+X` | Copy path |
+| `↑/↓` | Navigate | `Tab` | Switch panels |
+| `Ctrl+T` | **Toggle filter** | `Ctrl+R` | Reset input |
+| `Ctrl+J/K` | Jump first/last | `Esc` | Quit |
+
+> **New**: `Ctrl+T` cycles through filter modes: **All** (📁📄) → **Directories** (📁) → **Files** (📄)
 
 ## 🔒 Privacy & Security
 
