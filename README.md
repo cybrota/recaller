@@ -21,6 +21,7 @@ Recaller searches your shell history locally with smart ranking, instant help lo
 
 ### 📁 Filesystem Search
 - **Multi-Directory Indexing**: Index multiple directories simultaneously for comprehensive file search
+- **Auto Re-indexing**: Automatically discovers new files when launching the search UI
 - **Smart File Ranking**: Files ranked by access frequency and recency
 - **Filter Toggle**: Instantly switch between showing all files, directories only, or files only
 - **Fast Search**: Blazing-fast search through indexed files and directories
@@ -94,12 +95,12 @@ recaller history            # View history with filtering
 ### Filesystem Search
 ```bash
 # Index directories for filesystem search
-recaller fs index                    # Index current directory
-recaller fs index ~/Documents        # Index specific directory
-recaller fs index /usr/local ~/code  # Index multiple directories
+recaller fs index                    # Index current directory recursively
+recaller fs index ~/Documents        # Index specific directory recursively
+recaller fs index /usr/local ~/code  # Index multiple directories recursively
 
 # Launch filesystem search UI
-recaller fs                          # Launch filesystem search interface
+recaller fs                          # Launch search UI (auto re-indexes tracked paths)
 
 # Manage filesystem index  
 recaller fs clean --stale            # Remove entries for deleted files
@@ -107,6 +108,8 @@ recaller fs clean --older-than 30    # Remove entries older than 30 days
 recaller fs clean --clear            # Clear entire index
 recaller fs clean --dry-run          # Preview what would be cleaned
 ```
+
+> **🔄 Auto Re-indexing**: When you launch `recaller fs`, it automatically re-indexes all previously indexed directories to discover new files and folders that were added since the last indexing. This keeps your search results up-to-date without manual intervention.
 
 ### Configuration
 ```bash
