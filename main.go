@@ -131,16 +131,9 @@ Copyright @ Naren Yellavula (Please give us a star ⭐ here: https://github.com/
 			}
 
 			// Auto re-index existing paths to discover new files
-			rootPaths := fsIndexer.GetRootPaths()
-			if len(rootPaths) > 0 {
-				fmt.Printf("🔄 Re-indexing %d tracked paths to discover new files...\n", len(rootPaths))
-				if err := fsIndexer.ReindexExistingPaths(true); err != nil {
+			if len(fsIndexer.GetRootPaths()) > 0 {
+				if err := fsIndexer.RefreshIndex(true, false); err != nil {
 					log.Printf("Warning: Re-indexing completed with errors: %v", err)
-				}
-
-				// Persist the updated index
-				if err := fsIndexer.PersistIndex(); err != nil {
-					log.Printf("Warning: Failed to persist updated index: %v", err)
 				}
 			}
 
@@ -409,6 +402,54 @@ Copyright @ Naren Yellavula (Please give us a star ⭐ here: https://github.com/
 	cmdFsClean.Flags().Bool("clear", false, "Clear the entire index (requires confirmation)")
 	cmdFsClean.Flags().Bool("dry-run", false, "Show what would be cleaned without making changes")
 
+	var cmdFsRefresh = &cobra.Command{
+		Use:   "refresh",
+		Short: "Re-index all tracked paths to discover new files",
+		Long:  `Re-index all previously indexed directories to discover new files and directories without launching the search UI. This is useful for manually updating your index.`,
+		Args:  cobra.NoArgs,
+		Run: func(cmd *cobra.Command, args []string) {
+			// Load configuration
+			config, err := LoadConfig()
+			if err != nil {
+				log.Printf("Failed to load configuration: %v. Using default settings.", err)
+				config = &defaultConfig
+			}
+
+			if !config.Filesystem.Enabled {
+				fmt.Printf("❌ Filesystem search is disabled. Enable it in configuration:\n")
+				fmt.Printf("Edit ~/.recaller.yaml and set:\n")
+				fmt.Printf("filesystem:\n  enabled: true\n\n")
+				fmt.Printf("Or run: recaller settings list\n")
+				return
+			}
+
+			// Create filesystem indexer
+			fsIndexer := NewFilesystemIndexer(config.Filesystem)
+
+			// Load existing index
+			if err := fsIndexer.LoadOrCreateIndex(); err != nil {
+				fmt.Printf("❌ Failed to load filesystem index: %v\n", err)
+				fmt.Printf("💡 Run 'recaller fs index [path]' to create an index first.\n")
+				return
+			}
+
+			// Refresh the index using the shared function
+			if err := fsIndexer.RefreshIndex(true, true); err != nil {
+				if err.Error() == "no tracked paths found in index" {
+					fmt.Printf("📂 No tracked paths found in index.\n")
+					fmt.Printf("💡 Run 'recaller fs index [path]' to index directories first.\n")
+				} else if err.Error() == "max indexed files limit reached" {
+					fmt.Printf("⚠️  Reached maximum file limit (%d files)\n", config.Filesystem.MaxIndexedFiles)
+				} else {
+					fmt.Printf("❌ Refresh failed: %v\n", err)
+				}
+				return
+			}
+
+			fmt.Printf("✅ Refresh completed successfully!\n")
+		},
+	}
+
 	var cmdSettingsList = &cobra.Command{
 		Use:   "list",
 		Short: "List current configuration settings",
@@ -450,7 +491,7 @@ Copyright @ Naren Yellavula (Please give us a star ⭐ here: https://github.com/
 	}
 
 	cmdSettings.AddCommand(cmdSettingsList)
-	cmdFs.AddCommand(cmdFsIndex, cmdFsClean)
+	cmdFs.AddCommand(cmdFsIndex, cmdFsClean, cmdFsRefresh)
 	rootCmd.AddCommand(cmdRun, cmdUsage, cmdVersion, cmdHistory, cmdFs, cmdSettings)
 	rootCmd.Execute()
 }

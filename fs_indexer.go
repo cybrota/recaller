@@ -495,6 +495,50 @@ func (fi *FilesystemIndexer) ReindexExistingPaths(showProgress bool) error {
 	return fi.IndexDirectoriesWithProgress(validRootPaths, showProgress)
 }
 
+// RefreshIndex performs a complete refresh of all tracked paths with progress display and persistence
+func (fi *FilesystemIndexer) RefreshIndex(showProgress bool, showStats bool) error {
+	rootPaths := fi.GetRootPaths()
+	if len(rootPaths) == 0 {
+		return fmt.Errorf("no tracked paths found in index")
+	}
+
+	if showStats {
+		fmt.Printf("📊 Current index: %s\n", fi.GetIndexStats())
+	}
+
+	if showProgress {
+		fmt.Printf("🔄 Re-indexing %d tracked paths to discover new files...\n", len(rootPaths))
+	}
+
+	// Re-index all tracked paths
+	err := fi.ReindexExistingPaths(showProgress)
+	if err != nil {
+		return err
+	}
+
+	// Persist the updated index
+	if showProgress {
+		fmt.Printf("\n💾 Saving updated index to disk...")
+	}
+
+	if persistErr := fi.PersistIndex(); persistErr != nil {
+		if showProgress {
+			fmt.Printf(" ❌\n")
+		}
+		return fmt.Errorf("failed to persist updated index: %v", persistErr)
+	}
+
+	if showProgress {
+		fmt.Printf(" ✅\n")
+	}
+
+	if showStats {
+		fmt.Printf("\n📊 Updated index: %s\n", fi.GetIndexStats())
+	}
+
+	return nil
+}
+
 func (fi *FilesystemIndexer) SearchFiles(query string, enableFuzzy bool) []RankedFile {
 	var candidates []string
 	queryLower := strings.ToLower(query)
