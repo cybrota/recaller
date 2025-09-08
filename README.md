@@ -89,6 +89,9 @@ filesystem:
     - ".git"
     - "node_modules"
     - ".DS_Store"
+
+# Reduce the verbosity of app. Default is false.
+quiet: true
 ```
 
 ## Usage
@@ -110,7 +113,7 @@ recaller fs index /usr/local ~/code  # Index multiple directories recursively
 # Launch filesystem search UI
 recaller fs                          # Launch search UI (auto re-indexes tracked paths)
 
-# Manage filesystem index  
+# Manage filesystem index
 recaller fs clean --stale            # Remove entries for deleted files
 recaller fs clean --older-than 30    # Remove entries older than 30 days
 recaller fs clean --clear            # Clear entire index

@@ -265,7 +265,7 @@ func (fi *FilesystemIndexer) IndexDirectoryWithProgress(rootPath string, showPro
 				BarEnd:        "]",
 			}),
 			progressbar.OptionOnCompletion(func() {
-				fmt.Printf("\n✅ Indexing completed!\n")
+				fmt.Printf("\n✔️ Indexing completed!\n")
 			}),
 		)
 	}
@@ -350,7 +350,10 @@ func (fi *FilesystemIndexer) IndexDirectoriesWithProgress(rootPaths []string, sh
 		// Track this root path if not already tracked
 		fi.addRootPath(rootPath)
 
-		log.Printf("Starting filesystem indexing for directory %d/%d: %s", i+1, len(rootPaths), rootPath)
+		if showProgress {
+			log.Printf("Starting filesystem indexing for directory %d/%d: %s", i+1, len(rootPaths), rootPath)
+		}
+
 		count := 0
 
 		err := filepath.WalkDir(rootPath, func(path string, d fs.DirEntry, err error) error {
@@ -407,15 +410,17 @@ func (fi *FilesystemIndexer) IndexDirectoriesWithProgress(rootPaths []string, sh
 			}
 		}
 
-		log.Printf("Completed indexing directory %s: %d files/directories", rootPath, count)
+		if showProgress {
+			log.Printf("Completed indexing directory %s: %d files/directories", rootPath, count)
+		}
 	}
 
 	if showProgress && overallBar != nil {
-		overallBar.Describe("✅ Indexing completed")
+		overallBar.Describe("✔️ Indexing completed")
 		overallBar.Finish()
-	}
 
-	log.Printf("Multi-directory indexing completed. Total indexed: %d files/directories across %d directories", totalCount, len(rootPaths))
+		log.Printf("Multi-directory indexing completed. Total indexed: %d files/directories across %d directories", totalCount, len(rootPaths))
+	}
 	return nil
 }
 
@@ -471,7 +476,9 @@ func (fi *FilesystemIndexer) ReindexExistingPaths(showProgress bool) error {
 		return nil
 	}
 
-	log.Printf("Re-indexing %d tracked root paths to discover new files", len(fi.rootPaths))
+	if showProgress {
+		log.Printf("Re-indexing %d tracked root paths to discover new files", len(fi.rootPaths))
+	}
 
 	// Filter out root paths that no longer exist
 	var validRootPaths []string
@@ -502,9 +509,7 @@ func (fi *FilesystemIndexer) RefreshIndex(showProgress bool, showStats bool) err
 		return fmt.Errorf("no tracked paths found in index")
 	}
 
-	if showStats {
-		fmt.Printf("📊 Current index: %s\n", fi.GetIndexStats())
-	}
+	fmt.Printf("📊 Current index: %s\n", fi.GetIndexStats())
 
 	if showProgress {
 		fmt.Printf("🔄 Re-indexing %d tracked paths to discover new files...\n", len(rootPaths))
@@ -521,15 +526,11 @@ func (fi *FilesystemIndexer) RefreshIndex(showProgress bool, showStats bool) err
 		fmt.Printf("\n💾 Saving updated index to disk...")
 	}
 
-	if persistErr := fi.PersistIndex(); persistErr != nil {
+	if persistErr := fi.PersistIndex(showProgress); persistErr != nil {
 		if showProgress {
 			fmt.Printf(" ❌\n")
 		}
 		return fmt.Errorf("failed to persist updated index: %v", persistErr)
-	}
-
-	if showProgress {
-		fmt.Printf(" ✅\n")
 	}
 
 	if showStats {
@@ -807,7 +808,7 @@ func (fi *FilesystemIndexer) GetIndexPath() string {
 	return filepath.Join(homeDir, ".recaller_fs_index.bin")
 }
 
-func (fi *FilesystemIndexer) LoadOrCreateIndex() error {
+func (fi *FilesystemIndexer) LoadOrCreateIndex(showProgress bool) error {
 	indexPath := fi.GetIndexPath()
 
 	if _, err := os.Stat(indexPath); os.IsNotExist(err) {
@@ -815,17 +816,22 @@ func (fi *FilesystemIndexer) LoadOrCreateIndex() error {
 		return nil
 	}
 
-	log.Printf("Loading existing filesystem index from: %s", indexPath)
+	if showProgress {
+		log.Printf("Loading existing filesystem index from: %s", indexPath)
+	}
 	return fi.LoadFromFile(indexPath)
 }
 
-func (fi *FilesystemIndexer) PersistIndex() error {
+func (fi *FilesystemIndexer) PersistIndex(showProgress bool) error {
 	if !fi.isDirty {
 		return nil
 	}
 
 	indexPath := fi.GetIndexPath()
-	log.Printf("Persisting filesystem index to: %s", indexPath)
+
+	if showProgress {
+		log.Printf("Persisting filesystem index to: %s", indexPath)
+	}
 	return fi.SaveToFile(indexPath)
 }
 
@@ -834,12 +840,11 @@ func (fi *FilesystemIndexer) GetIndexStats() string {
 	sketchSize := CountMinDepth * CountMinWidth * 4 // int32 = 4 bytes
 	bloomSize := int(fi.bloomFilter.Cap() / 8)      // Approximate bloom filter size in bytes
 
-	return fmt.Sprintf("Index Stats: %d files, Memory: %.2fKB (Records: %.2fKB, Sketch: %.2fKB, Bloom: %.2fKB)",
+	return fmt.Sprintf("Index Stats: %d files, Memory: %.2fKB (Records: %.2fKB, Metadata: %.2fKB)",
 		len(fi.pathRecords),
 		float64(indexSize+sketchSize+bloomSize)/1024,
 		float64(indexSize)/1024,
-		float64(sketchSize)/1024,
-		float64(bloomSize)/1024)
+		(float64(sketchSize)/1024)+(float64(bloomSize)/1024))
 }
 
 // CleanupOptions defines options for index cleanup

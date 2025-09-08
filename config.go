@@ -42,6 +42,7 @@ type FilesystemConfig struct {
 type Config struct {
 	History    HistoryConfig    `yaml:"history"`
 	Filesystem FilesystemConfig `yaml:"filesystem"`
+	Quiet      bool             `yaml:"quiet"`
 }
 
 var defaultConfig = Config{
@@ -154,10 +155,17 @@ func displaySettings() {
 		fmt.Printf("📍 Config file: %s (newly created)\n", configPath)
 	}
 
-	fmt.Printf("📊 Current settings:\n\n")
+	fmt.Printf("Current settings:\n\n")
+
+	fmt.Printf("🔘 %sVerbosity:%s\n", Green, Reset)
+
+	quietValue := "true"
+	if !config.Quiet {
+		quietValue = "false"
+	}
+	fmt.Printf("  • %squiet%s: %s\n\n", Green, Reset, quietValue)
 
 	fmt.Printf("🔍 %sHistory Search:%s\n", Green, Reset)
-
 	fuzzyValue := "true"
 	fuzzyDesc := "Fuzzy search (substring matching anywhere)"
 	if !config.History.EnableFuzzing {
