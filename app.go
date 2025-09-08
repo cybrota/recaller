@@ -259,7 +259,7 @@ func run(tree *AVLTree, hc *cache.Cache) {
 	inputPara.Title = " Type Command "
 	inputPara.Text = ""
 	inputPara.TextStyle.Bg = ui.ColorBlue
-	inputPara.TextStyle.Fg = ui.ColorBlack
+	inputPara.TextStyle.Fg = ui.ColorWhite
 	inputPara.BorderStyle = ui.NewStyle(ui.ColorYellow)
 
 	// List to show matching results
