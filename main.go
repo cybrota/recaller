@@ -117,7 +117,7 @@ Copyright @ Naren Yellavula (Please give us a star ⭐ here: https://github.com/
 			fsIndexer := NewFilesystemIndexer(config.Filesystem)
 
 			// Load existing index
-			if err := fsIndexer.LoadOrCreateIndex(); err != nil {
+			if err := fsIndexer.LoadOrCreateIndex(!config.Quiet); err != nil {
 				fmt.Printf("❌ Failed to load filesystem index: %v\n", err)
 				fmt.Printf("💡 Run 'recaller fs index [path]' to create an index first.\n")
 				return
@@ -132,7 +132,7 @@ Copyright @ Naren Yellavula (Please give us a star ⭐ here: https://github.com/
 
 			// Auto re-index existing paths to discover new files
 			if len(fsIndexer.GetRootPaths()) > 0 {
-				if err := fsIndexer.RefreshIndex(true, false); err != nil {
+				if err := fsIndexer.RefreshIndex(!config.Quiet, false); err != nil {
 					log.Printf("Warning: Re-indexing completed with errors: %v", err)
 				}
 			}
@@ -209,7 +209,7 @@ Copyright @ Naren Yellavula (Please give us a star ⭐ here: https://github.com/
 			fsIndexer := NewFilesystemIndexer(config.Filesystem)
 
 			// Load existing index if available
-			if err := fsIndexer.LoadOrCreateIndex(); err != nil {
+			if err := fsIndexer.LoadOrCreateIndex(!config.Quiet); err != nil {
 				log.Printf("Failed to load filesystem index: %v", err)
 			}
 
@@ -240,7 +240,7 @@ Copyright @ Naren Yellavula (Please give us a star ⭐ here: https://github.com/
 
 			// Persist the index
 			fmt.Printf("\n💾 Saving index to disk...")
-			if err := fsIndexer.PersistIndex(); err != nil {
+			if err := fsIndexer.PersistIndex(!config.Quiet); err != nil {
 				log.Printf("Warning: Failed to persist index: %v", err)
 			} else {
 				fmt.Printf(" ✅\n")
@@ -274,7 +274,7 @@ Copyright @ Naren Yellavula (Please give us a star ⭐ here: https://github.com/
 			fsIndexer := NewFilesystemIndexer(config.Filesystem)
 
 			// Load existing index
-			if err := fsIndexer.LoadOrCreateIndex(); err != nil {
+			if err := fsIndexer.LoadOrCreateIndex(!config.Quiet); err != nil {
 				fmt.Printf("❌ Failed to load filesystem index: %v\n", err)
 				return
 			}
@@ -311,7 +311,7 @@ Copyright @ Naren Yellavula (Please give us a star ⭐ here: https://github.com/
 					return
 				}
 
-				if err := fsIndexer.PersistIndex(); err != nil {
+				if err := fsIndexer.PersistIndex(!config.Quiet); err != nil {
 					fmt.Printf("❌ Failed to persist cleared index: %v\n", err)
 					return
 				}
@@ -375,7 +375,7 @@ Copyright @ Naren Yellavula (Please give us a star ⭐ here: https://github.com/
 			if !dryRun && stats.RemovedEntries > 0 {
 				// Persist changes
 				fmt.Printf("\n💾 Saving cleaned index...")
-				if err := fsIndexer.PersistIndex(); err != nil {
+				if err := fsIndexer.PersistIndex(!config.Quiet); err != nil {
 					fmt.Printf(" ❌ Failed: %v\n", err)
 				} else {
 					fmt.Printf(" ✅\n")
@@ -427,14 +427,14 @@ Copyright @ Naren Yellavula (Please give us a star ⭐ here: https://github.com/
 			fsIndexer := NewFilesystemIndexer(config.Filesystem)
 
 			// Load existing index
-			if err := fsIndexer.LoadOrCreateIndex(); err != nil {
+			if err := fsIndexer.LoadOrCreateIndex(!config.Quiet); err != nil {
 				fmt.Printf("❌ Failed to load filesystem index: %v\n", err)
 				fmt.Printf("💡 Run 'recaller fs index [path]' to create an index first.\n")
 				return
 			}
 
 			// Refresh the index using the shared function
-			if err := fsIndexer.RefreshIndex(true, true); err != nil {
+			if err := fsIndexer.RefreshIndex(!config.Quiet, true); err != nil {
 				if err.Error() == "no tracked paths found in index" {
 					fmt.Printf("📂 No tracked paths found in index.\n")
 					fmt.Printf("💡 Run 'recaller fs index [path]' to index directories first.\n")
@@ -446,7 +446,7 @@ Copyright @ Naren Yellavula (Please give us a star ⭐ here: https://github.com/
 				return
 			}
 
-			fmt.Printf("✅ Refresh completed successfully!\n")
+			fmt.Printf("✔️ Refresh completed successfully!\n")
 		},
 	}
 

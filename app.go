@@ -643,7 +643,7 @@ func runFilesystemSearch(fsIndexer *FilesystemIndexer, config *Config) {
 	inputPara.Title = " Search Files & Directories "
 	inputPara.Text = ""
 	inputPara.TextStyle.Bg = ui.ColorBlue
-	inputPara.TextStyle.Fg = ui.ColorBlack
+	inputPara.TextStyle.Fg = ui.ColorWhite
 	inputPara.BorderStyle = ui.NewStyle(ui.ColorYellow)
 
 	// List to show matching files
@@ -659,7 +659,7 @@ func runFilesystemSearch(fsIndexer *FilesystemIndexer, config *Config) {
 	metadataList.Title = " 📋 File Info "
 	metadataList.Rows = []string{"Select a file to view details"}
 	metadataList.SelectedRow = 0
-	metadataList.SelectedRowStyle = ui.NewStyle(ui.ColorBlack, ui.ColorYellow)
+	metadataList.SelectedRowStyle = ui.NewStyle(ui.ColorWhite, ui.ColorYellow)
 	metadataList.WrapText = true
 
 	// Layout setup
@@ -882,7 +882,7 @@ func runFilesystemSearch(fsIndexer *FilesystemIndexer, config *Config) {
 
 				// Persist updated index
 				go func() {
-					if err := fsIndexer.PersistIndex(); err != nil {
+					if err := fsIndexer.PersistIndex(!config.Quiet); err != nil {
 						log.Printf("Failed to persist index: %v", err)
 					}
 				}()
