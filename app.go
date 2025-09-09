@@ -31,10 +31,37 @@ import (
 	"github.com/patrickmn/go-cache"
 )
 
+// ============================================================================
+// CONSTANTS AND CONFIGURATION
+// ============================================================================
+
 const (
 	Green = "\033[32m"
 	Reset = "\033[0m"
 )
+
+const (
+	debounceDelay     = 100 * time.Millisecond
+	fsDebounceDelay   = 150 * time.Millisecond
+	maxPathDisplayLen = 80
+	fileSizeUnit      = 1024
+)
+
+// Filter modes for filesystem search
+const (
+	filterModeAll = iota
+	filterModeDirs
+	filterModeFiles
+)
+
+var (
+	filterModes = []string{"All", "Dirs", "Files"}
+	filterIcons = []string{"📁📄", "📁", "📄"}
+)
+
+// ============================================================================
+// TERMINAL AND SYSTEM UTILITIES
+// ============================================================================
 
 // DisableMouseInput in termbox-go. This should be called after ui.Init()
 func DisableMouseInput() {
@@ -55,10 +82,8 @@ func sendToTerminal(command string) error {
 
 // sendToTerminalMacOS sends command using AppleScript
 func sendToTerminalMacOS(command string) error {
-	// Escape double quotes for AppleScript
 	escapedCommand := strings.ReplaceAll(command, `"`, `\"`)
 
-	// Try Terminal.app first (most common)
 	script := fmt.Sprintf(`tell application "Terminal"
 		activate
 		if (count of windows) = 0 then
@@ -72,7 +97,6 @@ func sendToTerminalMacOS(command string) error {
 	cmd := exec.Command("osascript", "-e", script)
 	err := cmd.Run()
 
-	// If Terminal.app fails, try iTerm2
 	if err != nil {
 		script = fmt.Sprintf(`tell application "iTerm2"
 			tell current window
@@ -90,7 +114,6 @@ func sendToTerminalMacOS(command string) error {
 
 // sendToTerminalLinux sends command using Linux terminal emulators
 func sendToTerminalLinux(command string) error {
-	// Try different terminal emulators in order of preference
 	terminals := []struct {
 		name string
 		cmd  []string
@@ -105,16 +128,33 @@ func sendToTerminalLinux(command string) error {
 		{"xterm", []string{"xterm", "-e", "bash", "-c", command + "; exec bash"}},
 	}
 
-	// First, try to detect which terminal is available
 	for _, terminal := range terminals {
 		if _, err := exec.LookPath(terminal.name); err == nil {
 			cmd := exec.Command(terminal.cmd[0], terminal.cmd[1:]...)
-			return cmd.Start() // Use Start() instead of Run() to avoid blocking
+			return cmd.Start()
 		}
 	}
 
 	return fmt.Errorf("no supported terminal emulator found")
 }
+
+// openFileWithDefaultApp opens a file or directory with the system's default application
+func openFileWithDefaultApp(path string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", path).Start()
+	case "linux":
+		return exec.Command("xdg-open", path).Start()
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", path).Start()
+	default:
+		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+	}
+}
+
+// ============================================================================
+// HELP AND CACHE UTILITIES
+// ============================================================================
 
 func GetOrfillCache(c *cache.Cache, cmd string) string {
 	help, err := splitCommand(cmd)
@@ -158,6 +198,49 @@ func dedupeLines(lines []string) []string {
 	return out
 }
 
+// ============================================================================
+// UI LAYOUT AND WIDGET MANAGEMENT
+// ============================================================================
+
+func createKeyboardShortcutsWidget() *widgets.Paragraph {
+	keyboardList := widgets.NewParagraph()
+	keyboardList.Title = " Keyboard Shortcuts "
+	keyboardList.Text = `[<enter>](fg:green) Copy command  [<ctrl+e>](fg:green) Send to terminal  [<ctrl+r>](fg:green) Reset input  [<tab>](fg:green) Switch panels  [<up/down>](fg:green) Navigate  [<ctrl+u>](fg:green) Insert command  [<ctrl+j/k>](fg:green) Jump first/last  [<F1>](fg:green) Show help  [<ctrl+z>](fg:green) Copy text  [<esc>](fg:green) Quit`
+	keyboardList.TextStyle.Fg = ui.ColorWhite
+	keyboardList.BorderStyle.Fg = ui.ColorWhite
+	return keyboardList
+}
+
+func createInputWidget() *widgets.Paragraph {
+	inputPara := widgets.NewParagraph()
+	inputPara.Title = " Type Command "
+	inputPara.Text = ""
+	inputPara.TextStyle.Bg = ui.ColorBlue
+	inputPara.TextStyle.Fg = ui.ColorWhite
+	inputPara.BorderStyle = ui.NewStyle(ui.ColorYellow)
+	return inputPara
+}
+
+func createSuggestionListWidget() *widgets.List {
+	suggestionList := widgets.NewList()
+	suggestionList.Title = " Recalled From History ⚡ "
+	suggestionList.Rows = []string{}
+	suggestionList.SelectedRow = 0
+	suggestionList.SelectedRowStyle = ui.NewStyle(ui.ColorBlack, ui.ColorGreen)
+	suggestionList.BorderStyle = ui.NewStyle(ui.ColorCyan)
+	return suggestionList
+}
+
+func createHelpListWidget() *widgets.List {
+	helpList := widgets.NewList()
+	helpList.Title = " Help Doc "
+	helpList.Rows = []string{"Select a command to display the help text"}
+	helpList.SelectedRow = 0
+	helpList.SelectedRowStyle = ui.NewStyle(ui.ColorBlack, ui.ColorYellow)
+	helpList.WrapText = true
+	return helpList
+}
+
 func showAIWidget(
 	grid *ui.Grid,
 	inputPara *widgets.Paragraph,
@@ -171,7 +254,7 @@ func showAIWidget(
 		ui.NewRow(0.93,
 			ui.NewCol(0.3,
 				ui.NewRow(0.2, inputPara),
-				ui.NewRow(0.82, suggestionList), // 0.82 for fill empty padding forced by keyboard widget
+				ui.NewRow(0.82, suggestionList),
 			),
 			ui.NewCol(0.7, helpList),
 		),
@@ -192,7 +275,7 @@ func showHelpWidget(
 		ui.NewRow(0.93,
 			ui.NewCol(0.3,
 				ui.NewRow(0.2, inputPara),
-				ui.NewRow(0.82, suggestionList), // 0.82 for fill empty padding forced by keyboard widget
+				ui.NewRow(0.82, suggestionList),
 			),
 			ui.NewCol(0.7, helpList),
 		),
@@ -211,24 +294,125 @@ func toggleBorders(w1 *widgets.List, w2 *widgets.List) {
 	}
 }
 
-func run(tree *AVLTree, hc *cache.Cache) {
-	// co_key := os.Getenv("COHERE_API_KEY")
-	// client := cohereclient.NewClient(cohereclient.WithToken(co_key))
+// ============================================================================
+// SEARCH AND SUGGESTION UTILITIES
+// ============================================================================
 
-	// Load configuration
+// getSuggestions searches through file tree and returns list of matches
+func getSuggestions(searchStr string, tree *AVLTree, enableFuzzing bool) []string {
+	matches := SearchWithRanking(tree, searchStr, enableFuzzing)
+	results := []string{}
+
+	for _, node := range matches {
+		results = append(results, fmt.Sprintf("%s", node.Command))
+	}
+
+	return results
+}
+
+// ============================================================================
+// COMMAND HISTORY SEARCH UI
+// ============================================================================
+
+type historySearchState struct {
+	inputBuffer     string
+	selectedIndex   int
+	lastSearchQuery string
+	focusOnHelp     bool
+}
+
+func (state *historySearchState) updateSearchResults(tree *AVLTree, config *Config, suggestionList *widgets.List, helpList *widgets.List, hc *cache.Cache, grid *ui.Grid) {
+	if state.inputBuffer == state.lastSearchQuery {
+		return
+	}
+	state.lastSearchQuery = state.inputBuffer
+
+	matches := SearchWithRanking(tree, state.inputBuffer, config.History.EnableFuzzing)
+	suggestionList.Rows = suggestionList.Rows[:0]
+
+	for _, node := range matches {
+		suggestionList.Rows = append(suggestionList.Rows, node.Command)
+	}
+
+	if state.selectedIndex >= len(suggestionList.Rows) {
+		state.selectedIndex = 0
+	}
+	if state.selectedIndex < 0 {
+		state.selectedIndex = 0
+	}
+	suggestionList.SelectedRow = state.selectedIndex
+
+	if len(suggestionList.Rows) > 0 {
+		selectedCmd := suggestionList.Rows[state.selectedIndex]
+		helpList.SelectedRow = 0
+		repaintHelpWidget(hc, helpList, selectedCmd)
+	}
+
+	ui.Render(grid)
+}
+
+func (state *historySearchState) handleNavigation(direction string, suggestionList *widgets.List, helpList *widgets.List, hc *cache.Cache, grid *ui.Grid, inputPara *widgets.Paragraph, aiResponsePara *widgets.Paragraph, keyboardList *widgets.Paragraph) {
+	if state.focusOnHelp {
+		switch direction {
+		case "up":
+			if helpList.SelectedRow > 0 {
+				helpList.SelectedRow--
+			}
+		case "down":
+			if helpList.SelectedRow < len(helpList.Rows)-1 {
+				helpList.SelectedRow++
+			}
+		case "first":
+			if len(helpList.Rows) > 0 {
+				helpList.SelectedRow = 0
+			}
+		case "last":
+			if len(helpList.Rows) > 0 {
+				helpList.SelectedRow = len(helpList.Rows) - 1
+			}
+		}
+	} else {
+		switch direction {
+		case "up":
+			if state.selectedIndex > 0 {
+				state.selectedIndex--
+				suggestionList.SelectedRow = state.selectedIndex
+				selectedCmd := suggestionList.Rows[state.selectedIndex]
+				helpList.SelectedRow = 0
+				repaintHelpWidget(hc, helpList, selectedCmd)
+				showHelpWidget(grid, inputPara, suggestionList, helpList, aiResponsePara, keyboardList)
+			}
+		case "down":
+			if state.selectedIndex < len(suggestionList.Rows)-1 {
+				state.selectedIndex++
+				suggestionList.SelectedRow = state.selectedIndex
+				selectedCmd := suggestionList.Rows[state.selectedIndex]
+				helpList.SelectedRow = 0
+				repaintHelpWidget(hc, helpList, selectedCmd)
+				showHelpWidget(grid, inputPara, suggestionList, helpList, aiResponsePara, keyboardList)
+			}
+		case "first":
+			state.selectedIndex = 0
+			suggestionList.SelectedRow = state.selectedIndex
+		case "last":
+			if len(suggestionList.Rows) > 0 {
+				state.selectedIndex = len(suggestionList.Rows) - 1
+				suggestionList.SelectedRow = state.selectedIndex
+			}
+		}
+	}
+}
+
+func run(tree *AVLTree, hc *cache.Cache) {
 	config, err := LoadConfig()
 	if err != nil {
 		log.Printf("Failed to load configuration: %v. Using default settings.", err)
 		config = &Config{History: HistoryConfig{EnableFuzzing: true}}
 	}
 
-	// Done channel for ticker
 	done := make(chan bool)
-
-	// Debouncing for search operations
 	searchDebouncer := time.NewTimer(0)
 	searchDebouncer.Stop()
-	const debounceDelay = 100 * time.Millisecond
 
 	if err := ui.Init(); err != nil {
 		log.Fatalf("failed to initialize termui: %v", err)
@@ -236,120 +420,52 @@ func run(tree *AVLTree, hc *cache.Cache) {
 	DisableMouseInput()
 	defer ui.Close()
 
-	rows, _ := ReadFilesAndDirs("green")
-	fileTreeRowTbl := widgets.NewTable()
-	fileTreeRowTbl.Title = "Files & Directories"
-	fileTreeRowTbl.Rows = [][]string{
-		{"Name"},
-	}
-	for _, item := range rows {
-		fileTreeRowTbl.Rows = append(fileTreeRowTbl.Rows, []string{item[0]})
-	}
-	fileTreeRowTbl.TextStyle = ui.NewStyle(ui.ColorWhite)
-	fileTreeRowTbl.FillRow = true
-
-	keyboardList := widgets.NewParagraph()
-	keyboardList.Title = " Keyboard Shortcuts "
-	keyboardList.Text = `[<enter>](fg:green) Copy command  [<ctrl+e>](fg:green) Send to terminal  [<ctrl+r>](fg:green) Reset input  [<tab>](fg:green) Switch panels  [<up/down>](fg:green) Navigate  [<ctrl+u>](fg:green) Insert command  [<ctrl+j/k>](fg:green) Jump first/last  [<F1>](fg:green) Show help  [<ctrl+z>](fg:green) Copy text  [<esc>](fg:green) Quit`
-	keyboardList.TextStyle.Fg = ui.ColorWhite
-	keyboardList.BorderStyle.Fg = ui.ColorWhite
-
-	// 1. Create the input paragraph
-	inputPara := widgets.NewParagraph()
-	inputPara.Title = " Type Command "
-	inputPara.Text = ""
-	inputPara.TextStyle.Bg = ui.ColorBlue
-	inputPara.TextStyle.Fg = ui.ColorWhite
-	inputPara.BorderStyle = ui.NewStyle(ui.ColorYellow)
-
-	// List to show matching results
-	suggestionList := widgets.NewList()
-	suggestionList.Title = " Recalled From History ⚡ "
-	suggestionList.Rows = []string{}
-	suggestionList.SelectedRow = 0
-	suggestionList.SelectedRowStyle = ui.NewStyle(ui.ColorBlack, ui.ColorGreen)
-	suggestionList.BorderStyle = ui.NewStyle(ui.ColorCyan)
-
-	// Create a widget to show help text of a command
-	helpList := widgets.NewList()
-	helpList.Title = " Help Doc "
-	helpList.Rows = []string{"Select a command to display the help text"}
-	helpList.SelectedRow = 0
-	helpList.SelectedRowStyle = ui.NewStyle(ui.ColorBlack, ui.ColorYellow)
-	helpList.WrapText = true
-
-	// Create a widget for AI output
+	// Create UI widgets
+	keyboardList := createKeyboardShortcutsWidget()
+	inputPara := createInputWidget()
+	suggestionList := createSuggestionListWidget()
+	helpList := createHelpListWidget()
 	aiResponsePara := widgets.NewParagraph()
 	aiResponsePara.Title = " AI Doc "
 	aiResponsePara.Text = ""
 	aiResponsePara.TextStyle.Fg = ui.ColorWhite
 
-	// === Layout with Grid ===
+	// Setup grid layout
 	termWidth, termHeight := ui.TerminalDimensions()
 	grid := ui.NewGrid()
 	grid.SetRect(0, 0, termWidth, termHeight)
-
 	showHelpWidget(grid, inputPara, suggestionList, helpList, aiResponsePara, keyboardList)
-	// 4. Render initial UI
 	ui.Render(grid)
 
-	focusOnHelp := false
-	uiEvents := ui.PollEvents()
-	inputBuffer := "" // We'll store typed characters here
-	selectedIndex := 0
-	lastSearchQuery := "" // Cache last search to avoid redundant operations
-
-	// Helper function to update search results
-	updateSearchResults := func(query string) {
-		if query == lastSearchQuery {
-			return // Skip if query hasn't changed
-		}
-		lastSearchQuery = query
-		matches := SearchWithRanking(tree, query, config.History.EnableFuzzing)
-		suggestionList.Rows = suggestionList.Rows[:0] // Reuse slice to reduce allocations
-		for _, node := range matches {
-			suggestionList.Rows = append(suggestionList.Rows, node.Command)
-		}
-
-		// Update selectedIndex bounds
-		if selectedIndex >= len(suggestionList.Rows) {
-			selectedIndex = 0
-		}
-		if selectedIndex < 0 {
-			selectedIndex = 0
-		}
-		suggestionList.SelectedRow = selectedIndex
-
-		// Auto-load help text for the selected command
-		if len(suggestionList.Rows) > 0 {
-			selectedCmd := suggestionList.Rows[selectedIndex]
-			helpList.SelectedRow = 0 // Reset help scroll to top
-			repaintHelpWidget(hc, helpList, selectedCmd)
-		}
-
-		ui.Render(grid)
+	// Initialize search state
+	state := &historySearchState{
+		inputBuffer:     "",
+		selectedIndex:   0,
+		lastSearchQuery: "",
+		focusOnHelp:     false,
 	}
 
-	// Perform initial search
-	updateSearchResults(inputBuffer)
-	// Start a ticker to update clock on the app
+	uiEvents := ui.PollEvents()
+
+	// Start debouncer goroutine
 	go func() {
 		for {
 			select {
 			case <-done:
 				return
 			case <-searchDebouncer.C:
-				// Debounced search execution
-				updateSearchResults(inputBuffer)
+				state.updateSearchResults(tree, config, suggestionList, helpList, hc, grid)
 			}
 		}
 	}()
+
+	// Perform initial search
+	state.updateSearchResults(tree, config, suggestionList, helpList, hc, grid)
 
 	for {
 		e := <-uiEvents
 		switch e.ID {
 		case "<C-c>", "<Escape>":
-			// Ctrl-C or Escape to exit
 			done <- true
 			return
 		case "<C-z>":
@@ -360,27 +476,22 @@ func run(tree *AVLTree, hc *cache.Cache) {
 				log.Println("Text successfully copied to clipboard!")
 			}
 		case "<Tab>":
-			// CHANGED: Press Tab or Shift to toggle focus
-			focusOnHelp = !focusOnHelp
+			state.focusOnHelp = !state.focusOnHelp
 			toggleBorders(suggestionList, helpList)
 		case "<Backspace>":
-			// Remove the last character from input
-			if len(inputBuffer) > 0 {
-				inputBuffer = inputBuffer[:len(inputBuffer)-1]
+			if len(state.inputBuffer) > 0 {
+				state.inputBuffer = state.inputBuffer[:len(state.inputBuffer)-1]
 			}
-			// Reset and restart debounce timer
 			searchDebouncer.Reset(debounceDelay)
 		case "<Space>":
-			// Specifically handle space
-			inputBuffer += " "
-			// Reset and restart debounce timer
+			state.inputBuffer += " "
 			searchDebouncer.Reset(debounceDelay)
 		case "<Enter>":
 			var commandToCopy string
 			if len(suggestionList.Rows) > 0 {
-				commandToCopy = suggestionList.Rows[selectedIndex]
+				commandToCopy = suggestionList.Rows[state.selectedIndex]
 			} else {
-				commandToCopy = inputBuffer
+				commandToCopy = state.inputBuffer
 			}
 			if commandToCopy != "" {
 				if err := clipboard.WriteAll(commandToCopy); err != nil {
@@ -393,12 +504,11 @@ func run(tree *AVLTree, hc *cache.Cache) {
 			}
 			return
 		case "<C-e>":
-			// Ctrl+E to send command directly to terminal
 			var commandToSend string
 			if len(suggestionList.Rows) > 0 {
-				commandToSend = suggestionList.Rows[selectedIndex]
+				commandToSend = suggestionList.Rows[state.selectedIndex]
 			} else {
-				commandToSend = inputBuffer
+				commandToSend = state.inputBuffer
 			}
 
 			if commandToSend != "" {
@@ -411,132 +521,31 @@ func run(tree *AVLTree, hc *cache.Cache) {
 			ui.Close()
 			return
 		case "<Up>":
-			if focusOnHelp {
-				// Scroll helpList up
-				if helpList.SelectedRow > 0 {
-					helpList.SelectedRow--
-				}
-			} else {
-				// Move selection up in suggestionList
-				if selectedIndex > 0 {
-					selectedIndex--
-					suggestionList.SelectedRow = selectedIndex
-					selectedCmd := suggestionList.Rows[selectedIndex]
-					// Reset Help page to Top
-					helpList.SelectedRow = 0
-					repaintHelpWidget(hc, helpList, selectedCmd)
-					showHelpWidget(grid, inputPara, suggestionList, helpList, aiResponsePara, keyboardList)
-				}
-			}
+			state.handleNavigation("up", suggestionList, helpList, hc, grid, inputPara, aiResponsePara, keyboardList)
 		case "<Down>":
-			if focusOnHelp {
-				if helpList.SelectedRow < len(helpList.Rows)-1 {
-					helpList.SelectedRow++
-				}
-			} else {
-				// Move selection down in suggestionList
-				if selectedIndex < len(suggestionList.Rows)-1 {
-					selectedIndex++
-					suggestionList.SelectedRow = selectedIndex
-					selectedCmd := suggestionList.Rows[selectedIndex]
-					// Reset Help page to Top
-					helpList.SelectedRow = 0
-					repaintHelpWidget(hc, helpList, selectedCmd)
-					showHelpWidget(grid, inputPara, suggestionList, helpList, aiResponsePara, keyboardList)
-				}
-			}
+			state.handleNavigation("down", suggestionList, helpList, hc, grid, inputPara, aiResponsePara, keyboardList)
 		case "<F1>":
 			var selectedCmd string
-			// Fetch help for the highlighted command
 			if len(suggestionList.Rows) > 0 {
-				selectedCmd = suggestionList.Rows[selectedIndex]
+				selectedCmd = suggestionList.Rows[state.selectedIndex]
 			} else {
 				selectedCmd = inputPara.Text
 			}
-
 			repaintHelpWidget(hc, helpList, selectedCmd)
 			showHelpWidget(grid, inputPara, suggestionList, helpList, aiResponsePara, keyboardList)
 		case "<C-u>":
-			if !focusOnHelp {
-				inputBuffer = suggestionList.Rows[selectedIndex]
+			if !state.focusOnHelp {
+				state.inputBuffer = suggestionList.Rows[state.selectedIndex]
 			}
 		case "<C-r>":
-			if !focusOnHelp {
-				inputBuffer = ""
+			if !state.focusOnHelp {
+				state.inputBuffer = ""
 			}
 		case "<C-j>":
-			// Go to the last line
-			if !focusOnHelp {
-				if len(suggestionList.Rows) > 0 {
-					selectedIndex = len(suggestionList.Rows) - 1
-					suggestionList.SelectedRow = selectedIndex
-				}
-			} else {
-				if len(helpList.Rows) > 0 {
-					helpList.SelectedRow = len(helpList.Rows) - 1
-				}
-			}
-		// case "<C-e>":
-		// 	showAIWidget(grid, inputPara, suggestionList, helpList, datetimePara, aiResponsePara)
-		// 	ui.Render(grid)
-		// 	helpList.Rows = []string{}
-		// 	var sc string
-		// 	if len(suggestionList.Rows) > 0 {
-		// 		sc = suggestionList.Rows[selectedIndex]
-		// 	} else {
-		// 		sc = inputPara.Text
-		// 	}
-
-		// 	prompt := preparePrompt(&PromptVars{
-		// 		SelectedCommand: sc,
-		// 		HelpText:        GetOrfillCache(hc, sc),
-		// 	})
-
-		// 	var max_t int = 500
-		// 	stream, err := client.ChatStream(
-		// 		context.TODO(),
-		// 		&cohere.ChatStreamRequest{
-		// 			Message:   prompt,
-		// 			MaxTokens: &max_t,
-		// 		},
-		// 	)
-		// 	if err != nil {
-		// 		fmt.Println(err)
-		// 	}
-
-		// 	// Make sure to close the stream when you're done reading.
-		// 	// This is easily handled with defer.
-		// 	defer stream.Close()
-		// 	for {
-		// 		message, err := stream.Recv()
-
-		// 		if errors.Is(err, io.EOF) {
-		// 			// An io.EOF error means the server is done sending messages
-		// 			// and should be treated as a success.
-		// 			break
-		// 		}
-		// 		if err != nil {
-		// 			// The stream has encountered a non-recoverable error. Propagate the
-		// 			// error by simply returning the error like usual.
-		// 			fmt.Println(err)
-		// 			break
-		// 		}
-		// 		aiResponsePara.Text = aiResponsePara.Text + message.TextGeneration.GetText()
-		// 		ui.Render(aiResponsePara)
-		// 	}
-
+			state.handleNavigation("last", suggestionList, helpList, hc, grid, inputPara, aiResponsePara, keyboardList)
 		case "<C-k>":
-			// Go to the first line
-			if !focusOnHelp {
-				selectedIndex = 0
-				suggestionList.SelectedRow = selectedIndex
-			} else {
-				if len(helpList.Rows) > 0 {
-					helpList.SelectedRow = 0
-				}
-			}
+			state.handleNavigation("first", suggestionList, helpList, hc, grid, inputPara, aiResponsePara, keyboardList)
 		case "<Resize>":
-			// Adjust layout when the terminal size changes
 			if payload, ok := e.Payload.(ui.Resize); ok {
 				grid.SetRect(0, 0, payload.Width, payload.Height)
 			} else {
@@ -547,53 +556,22 @@ func run(tree *AVLTree, hc *cache.Cache) {
 			ui.Clear()
 			ui.Render(grid)
 		default:
-			// Typically a typed character
-			if !focusOnHelp {
+			if !state.focusOnHelp {
 				if e.Type == ui.KeyboardEvent && len(e.ID) == 1 {
-					// Add typed character to input
-					inputBuffer += e.ID
-					// Reset and restart debounce timer
+					state.inputBuffer += e.ID
 					searchDebouncer.Reset(debounceDelay)
 				}
 			}
 		}
 
-		// Update the paragraph to show the current input
-		inputPara.Text = inputBuffer
-
-		// Re-render UI (search results updated via debouncer)
+		inputPara.Text = state.inputBuffer
 		ui.Render(grid)
 	}
 }
 
-// getSuggestions searches through file tree and returns list of matches
-// of commandRecommendLimit length
-func getSuggestions(searchStr string, tree *AVLTree, enableFuzzing bool) []string {
-	matches := SearchWithRanking(tree, searchStr, enableFuzzing)
-	results := []string{}
-
-	count := 0
-	for _, node := range matches {
-		results = append(results, fmt.Sprintf("%s", node.Command))
-		count++
-	}
-
-	return results
-}
-
-// openFileWithDefaultApp opens a file or directory with the system's default application
-func openFileWithDefaultApp(path string) error {
-	switch runtime.GOOS {
-	case "darwin":
-		return exec.Command("open", path).Start()
-	case "linux":
-		return exec.Command("xdg-open", path).Start()
-	case "windows":
-		return exec.Command("rundll32", "url.dll,FileProtocolHandler", path).Start()
-	default:
-		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
-	}
-}
+// ============================================================================
+// FILESYSTEM SEARCH UTILITIES
+// ============================================================================
 
 // formatFileForDisplay formats a file path for display in the UI
 func formatFileForDisplay(file RankedFile) string {
@@ -604,27 +582,199 @@ func formatFileForDisplay(file RankedFile) string {
 		icon = "📄"
 	}
 
-	// Show relative path if it's under current directory
 	currentDir, _ := os.Getwd()
 	displayPath := file.Path
 	if relPath, err := filepath.Rel(currentDir, file.Path); err == nil && !strings.HasPrefix(relPath, "..") {
 		displayPath = relPath
 	}
 
-	// Truncate long paths
-	if len(displayPath) > 80 {
-		displayPath = "..." + displayPath[len(displayPath)-77:]
+	if len(displayPath) > maxPathDisplayLen {
+		displayPath = "..." + displayPath[len(displayPath)-maxPathDisplayLen+3:]
 	}
 
 	return fmt.Sprintf("%s %s", icon, displayPath)
 }
 
+// formatFileSize formats file size in human-readable format
+func formatFileSize(size int64) string {
+	if size < fileSizeUnit {
+		return fmt.Sprintf("%d B", size)
+	}
+	div, exp := int64(fileSizeUnit), 0
+	for n := size / fileSizeUnit; n >= fileSizeUnit; n /= fileSizeUnit {
+		div *= fileSizeUnit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(size)/float64(div), "KMGTPE"[exp])
+}
+
+// ============================================================================
+// FILESYSTEM SEARCH UI
+// ============================================================================
+
+type filesystemSearchState struct {
+	inputBuffer     string
+	selectedIndex   int
+	lastSearchQuery string
+	focusOnMetadata bool
+	filterMode      int
+	currentFiles    []RankedFile
+}
+
+func (state *filesystemSearchState) updateFileListTitle(fileList *widgets.List) {
+	fileList.Title = fmt.Sprintf(" %s %s ", filterIcons[state.filterMode], filterModes[state.filterMode])
+}
+
+func (state *filesystemSearchState) updateMetadataDisplay(metadataList *widgets.List) {
+	if len(state.currentFiles) == 0 || state.selectedIndex >= len(state.currentFiles) {
+		metadataList.Rows = []string{"Select a file to view details"}
+		return
+	}
+
+	file := state.currentFiles[state.selectedIndex]
+	metadata := []string{
+		fmt.Sprintf("📍 Path: %s", file.Path),
+	}
+
+	if file.Metadata.IsDirectory {
+		metadata = append(metadata, "📁 Type: Directory")
+	} else {
+		ext := strings.ToUpper(filepath.Ext(file.Path))
+		if ext == "" {
+			ext = "FILE"
+		} else {
+			ext = ext[1:]
+		}
+		metadata = append(metadata, fmt.Sprintf("📄 Type: %s", ext))
+	}
+
+	if file.Metadata.Timestamp != nil {
+		metadata = append(metadata, fmt.Sprintf("🕒 Last Accessed: %s", file.Metadata.Timestamp.Format("2006-01-02 15:04:05")))
+	}
+	metadata = append(metadata, fmt.Sprintf("📊 Access Count: %d", file.Metadata.AccessCount))
+	metadata = append(metadata, fmt.Sprintf("⭐ Score: %.2f", file.Score))
+
+	if !file.Metadata.IsDirectory && file.Metadata.Size > 0 {
+		size := formatFileSize(file.Metadata.Size)
+		metadata = append(metadata, fmt.Sprintf("💾 Size: %s", size))
+	}
+
+	if !file.Metadata.LastModified.IsZero() {
+		metadata = append(metadata, fmt.Sprintf("✏️  Modified: %s", file.Metadata.LastModified.Format("2006-01-02 15:04:05")))
+	}
+
+	if file.Metadata.IsHidden {
+		metadata = append(metadata, "🔒 Hidden file")
+	}
+	if file.Metadata.IsSymlink {
+		metadata = append(metadata, "🔗 Symbolic link")
+	}
+
+	metadataList.Rows = metadata
+	metadataList.SelectedRow = 0
+}
+
+func (state *filesystemSearchState) updateFileResults(fsIndexer *FilesystemIndexer, config *Config, fileList *widgets.List, metadataList *widgets.List, grid *ui.Grid) {
+	if state.inputBuffer == state.lastSearchQuery {
+		return
+	}
+	state.lastSearchQuery = state.inputBuffer
+
+	if state.inputBuffer == "" {
+		fileList.Rows = []string{"Type to search files and directories..."}
+		state.currentFiles = []RankedFile{}
+	} else {
+		allFiles := fsIndexer.SearchFiles(state.inputBuffer, config.History.EnableFuzzing)
+		filteredFiles := []RankedFile{}
+
+		for _, file := range allFiles {
+			switch state.filterMode {
+			case filterModeAll:
+				filteredFiles = append(filteredFiles, file)
+			case filterModeDirs:
+				if file.Metadata.IsDirectory {
+					filteredFiles = append(filteredFiles, file)
+				}
+			case filterModeFiles:
+				if !file.Metadata.IsDirectory {
+					filteredFiles = append(filteredFiles, file)
+				}
+			}
+		}
+
+		state.currentFiles = filteredFiles
+		fileList.Rows = fileList.Rows[:0]
+
+		for _, file := range filteredFiles {
+			fileList.Rows = append(fileList.Rows, formatFileForDisplay(file))
+		}
+
+		if len(fileList.Rows) == 0 {
+			filterText := filterModes[state.filterMode]
+			if state.filterMode == filterModeAll {
+				fileList.Rows = []string{"No files found matching: " + state.inputBuffer}
+			} else {
+				fileList.Rows = []string{fmt.Sprintf("No %s found matching: %s", strings.ToLower(filterText), state.inputBuffer)}
+			}
+		}
+	}
+
+	if state.selectedIndex >= len(state.currentFiles) {
+		state.selectedIndex = 0
+	}
+	if state.selectedIndex < 0 {
+		state.selectedIndex = 0
+	}
+	fileList.SelectedRow = state.selectedIndex
+
+	state.updateFileListTitle(fileList)
+	state.updateMetadataDisplay(metadataList)
+	ui.Render(grid)
+}
+
+func createFilesystemKeyboardWidget() *widgets.Paragraph {
+	keyboardList := widgets.NewParagraph()
+	keyboardList.Title = " Filesystem Search Shortcuts "
+	keyboardList.Text = `[<enter>](fg:green) Open file  [<ctrl+x>](fg:green) Copy path  [<ctrl+r>](fg:green) Reset input  [<up/down>](fg:green) Navigate  [<ctrl+j/k>](fg:green) Jump first/last  [<ctrl+t>](fg:green) Toggle filter  [<tab>](fg:green) Switch panels  [<esc>](fg:green) Quit`
+	keyboardList.TextStyle.Fg = ui.ColorWhite
+	keyboardList.BorderStyle.Fg = ui.ColorWhite
+	return keyboardList
+}
+
+func createFilesystemInputWidget() *widgets.Paragraph {
+	inputPara := widgets.NewParagraph()
+	inputPara.Title = " Search Files & Directories "
+	inputPara.Text = ""
+	inputPara.TextStyle.Bg = ui.ColorBlue
+	inputPara.TextStyle.Fg = ui.ColorWhite
+	inputPara.BorderStyle = ui.NewStyle(ui.ColorYellow)
+	return inputPara
+}
+
+func createFileListWidget() *widgets.List {
+	fileList := widgets.NewList()
+	fileList.Title = " 📁 Files & Directories "
+	fileList.Rows = []string{"Type to search files and directories..."}
+	fileList.SelectedRow = 0
+	fileList.SelectedRowStyle = ui.NewStyle(ui.ColorBlack, ui.ColorGreen)
+	fileList.BorderStyle = ui.NewStyle(ui.ColorCyan)
+	return fileList
+}
+
+func createMetadataListWidget() *widgets.List {
+	metadataList := widgets.NewList()
+	metadataList.Title = " 📋 File Info "
+	metadataList.Rows = []string{"Select a file to view details"}
+	metadataList.SelectedRow = 0
+	metadataList.SelectedRowStyle = ui.NewStyle(ui.ColorWhite, ui.ColorYellow)
+	metadataList.WrapText = true
+	return metadataList
+}
+
 // runFilesystemSearch launches the filesystem search UI
 func runFilesystemSearch(fsIndexer *FilesystemIndexer, config *Config) {
-	// Debouncing for search operations
 	searchDebouncer := time.NewTimer(0)
 	searchDebouncer.Stop()
-	const debounceDelay = 150 * time.Millisecond
 
 	if err := ui.Init(); err != nil {
 		log.Fatalf("failed to initialize termui: %v", err)
@@ -632,37 +782,13 @@ func runFilesystemSearch(fsIndexer *FilesystemIndexer, config *Config) {
 	DisableMouseInput()
 	defer ui.Close()
 
-	keyboardList := widgets.NewParagraph()
-	keyboardList.Title = " Filesystem Search Shortcuts "
-	keyboardList.Text = `[<enter>](fg:green) Open file  [<ctrl+x>](fg:green) Copy path  [<ctrl+r>](fg:green) Reset input  [<up/down>](fg:green) Navigate  [<ctrl+j/k>](fg:green) Jump first/last  [<ctrl+t>](fg:green) Toggle filter  [<tab>](fg:green) Switch panels  [<esc>](fg:green) Quit`
-	keyboardList.TextStyle.Fg = ui.ColorWhite
-	keyboardList.BorderStyle.Fg = ui.ColorWhite
+	// Create UI widgets
+	keyboardList := createFilesystemKeyboardWidget()
+	inputPara := createFilesystemInputWidget()
+	fileList := createFileListWidget()
+	metadataList := createMetadataListWidget()
 
-	// Input paragraph
-	inputPara := widgets.NewParagraph()
-	inputPara.Title = " Search Files & Directories "
-	inputPara.Text = ""
-	inputPara.TextStyle.Bg = ui.ColorBlue
-	inputPara.TextStyle.Fg = ui.ColorWhite
-	inputPara.BorderStyle = ui.NewStyle(ui.ColorYellow)
-
-	// List to show matching files
-	fileList := widgets.NewList()
-	fileList.Title = " 📁 Files & Directories "
-	fileList.Rows = []string{"Type to search files and directories..."}
-	fileList.SelectedRow = 0
-	fileList.SelectedRowStyle = ui.NewStyle(ui.ColorBlack, ui.ColorGreen)
-	fileList.BorderStyle = ui.NewStyle(ui.ColorCyan)
-
-	// File metadata display
-	metadataList := widgets.NewList()
-	metadataList.Title = " 📋 File Info "
-	metadataList.Rows = []string{"Select a file to view details"}
-	metadataList.SelectedRow = 0
-	metadataList.SelectedRowStyle = ui.NewStyle(ui.ColorWhite, ui.ColorYellow)
-	metadataList.WrapText = true
-
-	// Layout setup
+	// Setup layout
 	termWidth, termHeight := ui.TerminalDimensions()
 	grid := ui.NewGrid()
 	grid.SetRect(0, 0, termWidth, termHeight)
@@ -680,145 +806,18 @@ func runFilesystemSearch(fsIndexer *FilesystemIndexer, config *Config) {
 
 	ui.Render(grid)
 
-	focusOnMetadata := false
+	// Initialize search state
+	state := &filesystemSearchState{
+		inputBuffer:     "",
+		selectedIndex:   0,
+		lastSearchQuery: "",
+		focusOnMetadata: false,
+		filterMode:      filterModeAll,
+		currentFiles:    []RankedFile{},
+	}
+
 	uiEvents := ui.PollEvents()
-	inputBuffer := ""
-	selectedIndex := 0
-	lastSearchQuery := ""
-	currentFiles := []RankedFile{}
-
-	// Filter modes: 0 = all, 1 = directories only, 2 = files only
-	filterMode := 0
-	filterModes := []string{"All", "Dirs", "Files"}
-	filterIcons := []string{"📁📄", "📁", "📄"}
-
-	// Done channel
 	done := make(chan bool)
-
-	// Helper function to update file list title based on filter mode
-	updateFileListTitle := func() {
-		fileList.Title = fmt.Sprintf(" %s %s ", filterIcons[filterMode], filterModes[filterMode])
-	}
-
-	// Helper function to update metadata display
-	var updateMetadataDisplay func()
-	updateMetadataDisplay = func() {
-		if len(currentFiles) == 0 || selectedIndex >= len(currentFiles) {
-			metadataList.Rows = []string{"Select a file to view details"}
-			return
-		}
-
-		file := currentFiles[selectedIndex]
-		metadata := []string{}
-
-		// File path
-		metadata = append(metadata, fmt.Sprintf("📍 Path: %s", file.Path))
-
-		// File type
-		if file.Metadata.IsDirectory {
-			metadata = append(metadata, "📁 Type: Directory")
-		} else {
-			ext := strings.ToUpper(filepath.Ext(file.Path))
-			if ext == "" {
-				ext = "FILE"
-			} else {
-				ext = ext[1:] // Remove dot
-			}
-			metadata = append(metadata, fmt.Sprintf("📄 Type: %s", ext))
-		}
-
-		// Access info
-		if file.Metadata.Timestamp != nil {
-			metadata = append(metadata, fmt.Sprintf("🕒 Last Accessed: %s", file.Metadata.Timestamp.Format("2006-01-02 15:04:05")))
-		}
-		metadata = append(metadata, fmt.Sprintf("📊 Access Count: %d", file.Metadata.AccessCount))
-		metadata = append(metadata, fmt.Sprintf("⭐ Score: %.2f", file.Score))
-
-		// File size (if not directory)
-		if !file.Metadata.IsDirectory && file.Metadata.Size > 0 {
-			size := formatFileSize(file.Metadata.Size)
-			metadata = append(metadata, fmt.Sprintf("💾 Size: %s", size))
-		}
-
-		// Last modified
-		if !file.Metadata.LastModified.IsZero() {
-			metadata = append(metadata, fmt.Sprintf("✏️  Modified: %s", file.Metadata.LastModified.Format("2006-01-02 15:04:05")))
-		}
-
-		// Additional flags
-		if file.Metadata.IsHidden {
-			metadata = append(metadata, "🔒 Hidden file")
-		}
-		if file.Metadata.IsSymlink {
-			metadata = append(metadata, "🔗 Symbolic link")
-		}
-
-		metadataList.Rows = metadata
-		metadataList.SelectedRow = 0
-	}
-
-	// Helper function to update file search results
-	updateFileResults := func(query string) {
-		// Only skip if both query and filter mode haven't changed
-		if query == lastSearchQuery {
-			return
-		}
-		lastSearchQuery = query
-
-		if query == "" {
-			fileList.Rows = []string{"Type to search files and directories..."}
-			currentFiles = []RankedFile{}
-		} else {
-			allFiles := fsIndexer.SearchFiles(query, config.History.EnableFuzzing)
-
-			// Apply filter based on filterMode
-			filteredFiles := []RankedFile{}
-			for _, file := range allFiles {
-				switch filterMode {
-				case 0: // All files and directories
-					filteredFiles = append(filteredFiles, file)
-				case 1: // Directories only
-					if file.Metadata.IsDirectory {
-						filteredFiles = append(filteredFiles, file)
-					}
-				case 2: // Files only
-					if !file.Metadata.IsDirectory {
-						filteredFiles = append(filteredFiles, file)
-					}
-				}
-			}
-
-			currentFiles = filteredFiles
-			fileList.Rows = fileList.Rows[:0]
-
-			for _, file := range filteredFiles {
-				fileList.Rows = append(fileList.Rows, formatFileForDisplay(file))
-			}
-
-			if len(fileList.Rows) == 0 {
-				filterText := filterModes[filterMode]
-				if filterMode == 0 {
-					fileList.Rows = []string{"No files found matching: " + query}
-				} else {
-					fileList.Rows = []string{fmt.Sprintf("No %s found matching: %s", strings.ToLower(filterText), query)}
-				}
-			}
-		}
-
-		// Update selected index bounds
-		if selectedIndex >= len(currentFiles) {
-			selectedIndex = 0
-		}
-		if selectedIndex < 0 {
-			selectedIndex = 0
-		}
-		fileList.SelectedRow = selectedIndex
-
-		// Update file list title and metadata display
-		updateFileListTitle()
-		updateMetadataDisplay()
-		ui.Render(grid)
-	}
 
 	// Start debouncer goroutine
 	go func() {
@@ -827,14 +826,14 @@ func runFilesystemSearch(fsIndexer *FilesystemIndexer, config *Config) {
 			case <-done:
 				return
 			case <-searchDebouncer.C:
-				updateFileResults(inputBuffer)
+				state.updateFileResults(fsIndexer, config, fileList, metadataList, grid)
 			}
 		}
 	}()
 
 	// Set initial title and perform initial search
-	updateFileListTitle()
-	updateFileResults(inputBuffer)
+	state.updateFileListTitle(fileList)
+	state.updateFileResults(fsIndexer, config, fileList, metadataList, grid)
 
 	for {
 		e := <-uiEvents
@@ -843,8 +842,8 @@ func runFilesystemSearch(fsIndexer *FilesystemIndexer, config *Config) {
 			done <- true
 			return
 		case "<Tab>":
-			focusOnMetadata = !focusOnMetadata
-			if focusOnMetadata {
+			state.focusOnMetadata = !state.focusOnMetadata
+			if state.focusOnMetadata {
 				fileList.BorderStyle = ui.NewStyle(ui.ColorWhite)
 				metadataList.BorderStyle = ui.NewStyle(ui.ColorCyan)
 			} else {
@@ -852,35 +851,30 @@ func runFilesystemSearch(fsIndexer *FilesystemIndexer, config *Config) {
 				metadataList.BorderStyle = ui.NewStyle(ui.ColorWhite)
 			}
 		case "<Backspace>":
-			if !focusOnMetadata && len(inputBuffer) > 0 {
-				inputBuffer = inputBuffer[:len(inputBuffer)-1]
-				searchDebouncer.Reset(debounceDelay)
+			if !state.focusOnMetadata && len(state.inputBuffer) > 0 {
+				state.inputBuffer = state.inputBuffer[:len(state.inputBuffer)-1]
+				searchDebouncer.Reset(fsDebounceDelay)
 			}
 		case "<Space>":
-			if focusOnMetadata {
-				// Handle space in metadata view (scroll)
+			if state.focusOnMetadata {
 				if metadataList.SelectedRow < len(metadataList.Rows)-1 {
 					metadataList.SelectedRow++
 				}
 			} else {
-				inputBuffer += " "
-				searchDebouncer.Reset(debounceDelay)
+				state.inputBuffer += " "
+				searchDebouncer.Reset(fsDebounceDelay)
 			}
 		case "<Enter>":
-			if len(currentFiles) > selectedIndex && selectedIndex >= 0 {
-				filePath := currentFiles[selectedIndex].Path
-
-				// Update access count
+			if len(state.currentFiles) > state.selectedIndex && state.selectedIndex >= 0 {
+				filePath := state.currentFiles[state.selectedIndex].Path
 				fsIndexer.AddPath(filePath, time.Now())
 
-				// Open file with default app
 				if err := openFileWithDefaultApp(filePath); err != nil {
 					log.Printf("Failed to open file: %v", err)
 				} else {
 					fmt.Printf("🚀 Opened: %s\n", filePath)
 				}
 
-				// Persist updated index
 				go func() {
 					if err := fsIndexer.PersistIndex(!config.Quiet); err != nil {
 						log.Printf("Failed to persist index: %v", err)
@@ -890,9 +884,8 @@ func runFilesystemSearch(fsIndexer *FilesystemIndexer, config *Config) {
 			ui.Close()
 			return
 		case "<C-x>":
-			// Copy file path to clipboard (changed to Ctrl+X to avoid conflict)
-			if len(currentFiles) > selectedIndex && selectedIndex >= 0 {
-				filePath := currentFiles[selectedIndex].Path
+			if len(state.currentFiles) > state.selectedIndex && state.selectedIndex >= 0 {
+				filePath := state.currentFiles[state.selectedIndex].Path
 				if err := clipboard.WriteAll(filePath); err != nil {
 					log.Printf("Failed to copy path: %v", err)
 				}
@@ -901,40 +894,40 @@ func runFilesystemSearch(fsIndexer *FilesystemIndexer, config *Config) {
 				return
 			}
 		case "<Up>":
-			if focusOnMetadata {
+			if state.focusOnMetadata {
 				if metadataList.SelectedRow > 0 {
 					metadataList.SelectedRow--
 				}
 			} else {
-				if selectedIndex > 0 && len(currentFiles) > 0 {
-					selectedIndex--
-					fileList.SelectedRow = selectedIndex
-					updateMetadataDisplay()
+				if state.selectedIndex > 0 && len(state.currentFiles) > 0 {
+					state.selectedIndex--
+					fileList.SelectedRow = state.selectedIndex
+					state.updateMetadataDisplay(metadataList)
 				}
 			}
 		case "<Down>":
-			if focusOnMetadata {
+			if state.focusOnMetadata {
 				if metadataList.SelectedRow < len(metadataList.Rows)-1 {
 					metadataList.SelectedRow++
 				}
 			} else {
-				if selectedIndex < len(currentFiles)-1 && len(currentFiles) > 0 {
-					selectedIndex++
-					fileList.SelectedRow = selectedIndex
-					updateMetadataDisplay()
+				if state.selectedIndex < len(state.currentFiles)-1 && len(state.currentFiles) > 0 {
+					state.selectedIndex++
+					fileList.SelectedRow = state.selectedIndex
+					state.updateMetadataDisplay(metadataList)
 				}
 			}
 		case "<C-r>":
-			if !focusOnMetadata {
-				inputBuffer = ""
-				searchDebouncer.Reset(debounceDelay)
+			if !state.focusOnMetadata {
+				state.inputBuffer = ""
+				searchDebouncer.Reset(fsDebounceDelay)
 			}
 		case "<C-j>":
-			if !focusOnMetadata {
-				if len(currentFiles) > 0 {
-					selectedIndex = len(currentFiles) - 1
-					fileList.SelectedRow = selectedIndex
-					updateMetadataDisplay()
+			if !state.focusOnMetadata {
+				if len(state.currentFiles) > 0 {
+					state.selectedIndex = len(state.currentFiles) - 1
+					fileList.SelectedRow = state.selectedIndex
+					state.updateMetadataDisplay(metadataList)
 				}
 			} else {
 				if len(metadataList.Rows) > 0 {
@@ -942,19 +935,17 @@ func runFilesystemSearch(fsIndexer *FilesystemIndexer, config *Config) {
 				}
 			}
 		case "<C-k>":
-			if !focusOnMetadata {
-				selectedIndex = 0
-				fileList.SelectedRow = selectedIndex
-				updateMetadataDisplay()
+			if !state.focusOnMetadata {
+				state.selectedIndex = 0
+				fileList.SelectedRow = state.selectedIndex
+				state.updateMetadataDisplay(metadataList)
 			} else {
 				metadataList.SelectedRow = 0
 			}
 		case "<C-t>":
-			// Toggle filter mode: All -> Dirs -> Files -> All
-			filterMode = (filterMode + 1) % 3
-			// Force refresh by clearing lastSearchQuery
-			lastSearchQuery = ""
-			updateFileResults(inputBuffer)
+			state.filterMode = (state.filterMode + 1) % 3
+			state.lastSearchQuery = ""
+			state.updateFileResults(fsIndexer, config, fileList, metadataList, grid)
 		case "<Resize>":
 			if payload, ok := e.Payload.(ui.Resize); ok {
 				grid.SetRect(0, 0, payload.Width, payload.Height)
@@ -965,27 +956,13 @@ func runFilesystemSearch(fsIndexer *FilesystemIndexer, config *Config) {
 			ui.Clear()
 			ui.Render(grid)
 		default:
-			if !focusOnMetadata && e.Type == ui.KeyboardEvent && len(e.ID) == 1 {
-				inputBuffer += e.ID
-				searchDebouncer.Reset(debounceDelay)
+			if !state.focusOnMetadata && e.Type == ui.KeyboardEvent && len(e.ID) == 1 {
+				state.inputBuffer += e.ID
+				searchDebouncer.Reset(fsDebounceDelay)
 			}
 		}
 
-		inputPara.Text = inputBuffer
+		inputPara.Text = state.inputBuffer
 		ui.Render(grid)
 	}
-}
-
-// formatFileSize formats file size in human-readable format
-func formatFileSize(size int64) string {
-	const unit = 1024
-	if size < unit {
-		return fmt.Sprintf("%d B", size)
-	}
-	div, exp := int64(unit), 0
-	for n := size / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(size)/float64(div), "KMGTPE"[exp])
 }
