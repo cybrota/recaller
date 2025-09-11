@@ -25,6 +25,10 @@ import (
 )
 
 func main() {
+	// Initialize color system early
+	InitializeColors()
+	Green, Info, Warning, Error, Reset = GetANSIColors()
+
 	asciiLogo := `
 ██████╗ ███████╗ ██████╗ █████╗ ██╗     ██╗     ███████╗██████╗
 ██╔══██╗██╔════╝██╔════╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗
@@ -38,7 +42,7 @@ Copyright @ Naren Yellavula (Please give us a star ⭐ here: https://github.com/
 
 `
 
-	asciiLogo = fmt.Sprintf(asciiLogo, Green, version, Reset)
+	asciiLogo = fmt.Sprintf(asciiLogo, Info, version, Reset)
 
 	var cmdRun = &cobra.Command{
 		Use:   "run",

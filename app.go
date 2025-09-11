@@ -35,9 +35,8 @@ import (
 // CONSTANTS AND CONFIGURATION
 // ============================================================================
 
-const (
-	Green = "\033[32m"
-	Reset = "\033[0m"
+var (
+	Green, Info, Warning, Error, Reset string
 )
 
 const (
@@ -206,8 +205,8 @@ func createKeyboardShortcutsWidget() *widgets.Paragraph {
 	keyboardList := widgets.NewParagraph()
 	keyboardList.Title = " Keyboard Shortcuts "
 	keyboardList.Text = `[<enter>](fg:green) Copy command  [<ctrl+e>](fg:green) Send to terminal  [<ctrl+r>](fg:green) Reset input  [<tab>](fg:green) Switch panels  [<up/down>](fg:green) Navigate  [<ctrl+u>](fg:green) Insert command  [<ctrl+j/k>](fg:green) Jump first/last  [<F1>](fg:green) Show help  [<ctrl+z>](fg:green) Copy text  [<esc>](fg:green) Quit`
-	keyboardList.TextStyle.Fg = ui.ColorWhite
-	keyboardList.BorderStyle.Fg = ui.ColorWhite
+	keyboardList.TextStyle = StyleText()
+	keyboardList.BorderStyle = StyleBorder(false)
 	return keyboardList
 }
 
@@ -215,9 +214,10 @@ func createInputWidget() *widgets.Paragraph {
 	inputPara := widgets.NewParagraph()
 	inputPara.Title = " Type Command "
 	inputPara.Text = ""
-	inputPara.TextStyle.Bg = ui.ColorBlue
-	inputPara.TextStyle.Fg = ui.ColorWhite
-	inputPara.BorderStyle = ui.NewStyle(ui.ColorYellow)
+	scheme := GetColorScheme()
+	inputPara.TextStyle.Bg = scheme.Primary
+	inputPara.TextStyle.Fg = scheme.OnPrimary
+	inputPara.BorderStyle = StyleBorder(true)
 	return inputPara
 }
 
@@ -226,8 +226,8 @@ func createSuggestionListWidget() *widgets.List {
 	suggestionList.Title = " Recalled From History ⚡ "
 	suggestionList.Rows = []string{}
 	suggestionList.SelectedRow = 0
-	suggestionList.SelectedRowStyle = ui.NewStyle(ui.ColorBlack, ui.ColorGreen)
-	suggestionList.BorderStyle = ui.NewStyle(ui.ColorCyan)
+	suggestionList.SelectedRowStyle = StyleSuccess()
+	suggestionList.BorderStyle = StyleBorder(true)
 	return suggestionList
 }
 
@@ -236,8 +236,9 @@ func createHelpListWidget() *widgets.List {
 	helpList.Title = " Help Doc "
 	helpList.Rows = []string{"Select a command to display the help text"}
 	helpList.SelectedRow = 0
-	helpList.SelectedRowStyle = ui.NewStyle(ui.ColorBlack, ui.ColorYellow)
+	helpList.SelectedRowStyle = StyleWarning()
 	helpList.WrapText = true
+	helpList.BorderStyle = StyleBorder(false)
 	return helpList
 }
 
@@ -285,12 +286,13 @@ func showHelpWidget(
 
 // toggleBorders toggles borders of given widgets b/w White & Cyan
 func toggleBorders(w1 *widgets.List, w2 *widgets.List) {
-	if w1.BorderStyle.Fg == ui.ColorCyan {
-		w1.BorderStyle = ui.NewStyle(ui.ColorWhite)
-		w2.BorderStyle = ui.NewStyle(ui.ColorCyan)
+	scheme := GetColorScheme()
+	if w1.BorderStyle.Fg == scheme.BorderFocus {
+		w1.BorderStyle = StyleBorder(false)
+		w2.BorderStyle = StyleBorder(true)
 	} else {
-		w1.BorderStyle = ui.NewStyle(ui.ColorCyan)
-		w2.BorderStyle = ui.NewStyle(ui.ColorWhite)
+		w1.BorderStyle = StyleBorder(true)
+		w2.BorderStyle = StyleBorder(false)
 	}
 }
 
@@ -404,6 +406,10 @@ func (state *historySearchState) handleNavigation(direction string, suggestionLi
 }
 
 func run(tree *AVLTree, hc *cache.Cache) {
+	// Initialize color system
+	InitializeColors()
+	Green, Info, Warning, Error, Reset = GetANSIColors()
+
 	config, err := LoadConfig()
 	if err != nil {
 		log.Printf("Failed to load configuration: %v. Using default settings.", err)
@@ -428,7 +434,8 @@ func run(tree *AVLTree, hc *cache.Cache) {
 	aiResponsePara := widgets.NewParagraph()
 	aiResponsePara.Title = " AI Doc "
 	aiResponsePara.Text = ""
-	aiResponsePara.TextStyle.Fg = ui.ColorWhite
+	aiResponsePara.TextStyle = StyleText()
+	aiResponsePara.BorderStyle = StyleBorder(false)
 
 	// Setup grid layout
 	termWidth, termHeight := ui.TerminalDimensions()
@@ -736,8 +743,8 @@ func createFilesystemKeyboardWidget() *widgets.Paragraph {
 	keyboardList := widgets.NewParagraph()
 	keyboardList.Title = " Filesystem Search Shortcuts "
 	keyboardList.Text = `[<enter>](fg:green) Open file  [<ctrl+x>](fg:green) Copy path  [<ctrl+r>](fg:green) Reset input  [<up/down>](fg:green) Navigate  [<ctrl+j/k>](fg:green) Jump first/last  [<ctrl+t>](fg:green) Toggle filter  [<tab>](fg:green) Switch panels  [<esc>](fg:green) Quit`
-	keyboardList.TextStyle.Fg = ui.ColorWhite
-	keyboardList.BorderStyle.Fg = ui.ColorWhite
+	keyboardList.TextStyle = StyleText()
+	keyboardList.BorderStyle = StyleBorder(false)
 	return keyboardList
 }
 
@@ -745,9 +752,10 @@ func createFilesystemInputWidget() *widgets.Paragraph {
 	inputPara := widgets.NewParagraph()
 	inputPara.Title = " Search Files & Directories "
 	inputPara.Text = ""
-	inputPara.TextStyle.Bg = ui.ColorBlue
-	inputPara.TextStyle.Fg = ui.ColorWhite
-	inputPara.BorderStyle = ui.NewStyle(ui.ColorYellow)
+	scheme := GetColorScheme()
+	inputPara.TextStyle.Bg = scheme.Primary
+	inputPara.TextStyle.Fg = scheme.OnPrimary
+	inputPara.BorderStyle = StyleBorder(true)
 	return inputPara
 }
 
@@ -756,8 +764,8 @@ func createFileListWidget() *widgets.List {
 	fileList.Title = " 📁 Files & Directories "
 	fileList.Rows = []string{"Type to search files and directories..."}
 	fileList.SelectedRow = 0
-	fileList.SelectedRowStyle = ui.NewStyle(ui.ColorBlack, ui.ColorGreen)
-	fileList.BorderStyle = ui.NewStyle(ui.ColorCyan)
+	fileList.SelectedRowStyle = StyleSuccess()
+	fileList.BorderStyle = StyleBorder(true)
 	return fileList
 }
 
@@ -766,13 +774,18 @@ func createMetadataListWidget() *widgets.List {
 	metadataList.Title = " 📋 File Info "
 	metadataList.Rows = []string{"Select a file to view details"}
 	metadataList.SelectedRow = 0
-	metadataList.SelectedRowStyle = ui.NewStyle(ui.ColorWhite, ui.ColorYellow)
+	metadataList.SelectedRowStyle = StyleInfo()
 	metadataList.WrapText = true
+	metadataList.BorderStyle = StyleBorder(false)
 	return metadataList
 }
 
 // runFilesystemSearch launches the filesystem search UI
 func runFilesystemSearch(fsIndexer *FilesystemIndexer, config *Config) {
+	// Initialize color system
+	InitializeColors()
+	Green, Info, Warning, Error, Reset = GetANSIColors()
+
 	searchDebouncer := time.NewTimer(0)
 	searchDebouncer.Stop()
 
@@ -844,11 +857,11 @@ func runFilesystemSearch(fsIndexer *FilesystemIndexer, config *Config) {
 		case "<Tab>":
 			state.focusOnMetadata = !state.focusOnMetadata
 			if state.focusOnMetadata {
-				fileList.BorderStyle = ui.NewStyle(ui.ColorWhite)
-				metadataList.BorderStyle = ui.NewStyle(ui.ColorCyan)
+				fileList.BorderStyle = StyleBorder(false)
+				metadataList.BorderStyle = StyleBorder(true)
 			} else {
-				fileList.BorderStyle = ui.NewStyle(ui.ColorCyan)
-				metadataList.BorderStyle = ui.NewStyle(ui.ColorWhite)
+				fileList.BorderStyle = StyleBorder(true)
+				metadataList.BorderStyle = StyleBorder(false)
 			}
 		case "<Backspace>":
 			if !state.focusOnMetadata && len(state.inputBuffer) > 0 {
