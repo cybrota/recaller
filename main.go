@@ -25,6 +25,10 @@ import (
 )
 
 func main() {
+	// Initialize color system early
+	InitializeColors()
+	Green, Info, Warning, Error, Reset = GetANSIColors()
+
 	asciiLogo := `
 ██████╗ ███████╗ ██████╗ █████╗ ██╗     ██╗     ███████╗██████╗
 ██╔══██╗██╔════╝██╔════╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗
@@ -38,7 +42,7 @@ Copyright @ Naren Yellavula (Please give us a star ⭐ here: https://github.com/
 
 `
 
-	asciiLogo = fmt.Sprintf(asciiLogo, Green, version, Reset)
+	asciiLogo = fmt.Sprintf(asciiLogo, Info, version, Reset)
 
 	var cmdRun = &cobra.Command{
 		Use:   "run",
@@ -47,15 +51,26 @@ Copyright @ Naren Yellavula (Please give us a star ⭐ here: https://github.com/
 		Args:  cobra.MinimumNArgs(0),
 		Run: func(cmd *cobra.Command, args []string) {
 			// Parse the command-line flags
+			useBubbleTea, _ := cmd.Flags().GetBool("bubble-tea")
+
 			helpCache := NewOptimizedHelpCache()
 
 			tree := NewAVLTree()
 			if err := readHistoryAndPopulateTree(tree); err != nil {
 				log.Fatalf("Error reading history: %v", err)
 			}
-			run(tree, helpCache)
+
+			if useBubbleTea {
+				fmt.Println("🫧 Using Bubble Tea UI...")
+				if err := runBubbleTeaApp(tree, helpCache, nil, ModeHistory); err != nil {
+					log.Fatalf("Error running Bubble Tea app: %v", err)
+				}
+			} else {
+				run(tree, helpCache)
+			}
 		},
 	}
+	cmdRun.Flags().Bool("bubble-tea", false, "Use new Bubble Tea UI (experimental)")
 
 	var cmdUsage = &cobra.Command{
 		Use:   "usage",
@@ -98,6 +113,9 @@ Copyright @ Naren Yellavula (Please give us a star ⭐ here: https://github.com/
 		Short: "Filesystem search commands",
 		Long:  fmt.Sprintf("%s\n%s", asciiLogo, `Launch filesystem search UI using existing index, or use subcommands to manage the index. Use 'recaller fs index [path]' to index directories first.`),
 		Run: func(cmd *cobra.Command, args []string) {
+			// Parse the command-line flags
+			useBubbleTea, _ := cmd.Flags().GetBool("bubble-tea")
+
 			// Load configuration
 			config, err := LoadConfig()
 			if err != nil {
@@ -141,10 +159,19 @@ Copyright @ Naren Yellavula (Please give us a star ⭐ here: https://github.com/
 			fmt.Printf("📊 %s\n", fsIndexer.GetIndexStats())
 
 			// Launch filesystem search UI
-			fmt.Printf("🚀 Launching filesystem search UI...\n")
-			runFilesystemSearch(fsIndexer, config)
+			if useBubbleTea {
+				fmt.Printf("🫧 Launching Bubble Tea filesystem search UI...\n")
+				helpCache := NewOptimizedHelpCache()
+				if err := runBubbleTeaApp(nil, helpCache, fsIndexer, ModeFilesystem); err != nil {
+					log.Fatalf("Error running Bubble Tea app: %v", err)
+				}
+			} else {
+				fmt.Printf("🚀 Launching filesystem search UI...\n")
+				runFilesystemSearch(fsIndexer, config)
+			}
 		},
 	}
+	cmdFs.Flags().Bool("bubble-tea", false, "Use new Bubble Tea UI (experimental)")
 
 	var cmdFsIndex = &cobra.Command{
 		Use:   "index [path1] [path2] ...",
