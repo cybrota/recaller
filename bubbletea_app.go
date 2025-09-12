@@ -613,10 +613,10 @@ func (m Model) renderHistoryView() string {
 	var inputTitle string
 	if m.focusIndex == 0 && !m.focusOnHelp {
 		inputStyle = m.styles.BorderFocused
-		inputTitle = " 🔍 Search Commands (Active) "
+		inputTitle = " 🔍 Search Commands (Active)\n"
 	} else {
 		inputStyle = m.styles.BorderBlurred
-		inputTitle = " 🔍 Search Commands "
+		inputTitle = " 🔍 Search Commands\n"
 	}
 
 	// Ensure textInput has proper width
@@ -676,7 +676,7 @@ func (m Model) renderHistoryView() string {
 
 	helpBox := helpStyle.
 		Width(helpWidth).
-		Height(helpHeight + inputHeight + 1).
+		Height(helpHeight + inputHeight + 2).
 		Render(lipgloss.JoinVertical(
 			lipgloss.Left,
 			m.styles.Title.Width(helpWidth-4).Render(helpTitle),
@@ -787,7 +787,7 @@ func (m Model) renderFilesystemView() string {
 
 	metadataBox := metadataStyle.
 		Width(rightWidth).
-		Height(inputHeight + listHeight + 1).
+		Height(inputHeight + listHeight + 2).
 		Render(lipgloss.JoinVertical(
 			lipgloss.Left,
 			m.styles.Title.Width(rightWidth-4).Render(metadataTitle),
@@ -832,7 +832,7 @@ func (m *Model) updateLayout() {
 		// Set component sizes
 		m.suggestionsList.SetSize(suggestionWidth-2, helpHeight-2)
 		m.helpViewport.Width = helpWidth - 2
-		m.helpViewport.Height = helpHeight - 2
+		m.helpViewport.Height = helpHeight + inputHeight
 	} else {
 		inputHeight := 3
 		listHeight := m.height - inputHeight - 6
@@ -845,7 +845,7 @@ func (m *Model) updateLayout() {
 		// Set component sizes
 		m.filesList.SetSize(leftWidth-2, listHeight-2)
 		m.metadataViewport.Width = rightWidth - 2
-		m.metadataViewport.Height = inputHeight + listHeight - 1
+		m.metadataViewport.Height = inputHeight + listHeight
 	}
 }
 
