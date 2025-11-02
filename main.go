@@ -69,7 +69,7 @@ Copyright @ Naren Yellavula (Please give us a star ⭐ here: https://github.com/
 
 	var cmdHistory = &cobra.Command{
 		Use:   "history",
-		Short: "Print Recaller usage guide",
+		Short: "Fetch history sorted by time and frequency. Pass a string to find a match. Ex: recaller history s3api",
 		Long:  fmt.Sprintf("%s\n%s", asciiLogo, "Suggest list of past %d most frequently used commands"),
 		Args:  cobra.MinimumNArgs(0),
 		Run: func(cmd *cobra.Command, args []string) {

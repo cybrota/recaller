@@ -12,6 +12,7 @@ project_name: recaller
 
 before:
   hooks:
+    - ./verify.sh
     # You may remove this if you don't use go modules.
     - go mod tidy
     # you may remove this if you don't need go generate
