@@ -45,6 +45,13 @@ type Config struct {
 	Quiet      bool             `yaml:"quiet"`
 }
 
+func cloneDefaultConfig() *Config {
+	cfg := defaultConfig
+	cfg.Filesystem.IndexDirectories = append([]string{}, defaultConfig.Filesystem.IndexDirectories...)
+	cfg.Filesystem.IgnorePatterns = append([]string{}, defaultConfig.Filesystem.IgnorePatterns...)
+	return &cfg
+}
+
 var defaultConfig = Config{
 	History: HistoryConfig{
 		EnableFuzzing: true,
@@ -64,26 +71,29 @@ var defaultConfig = Config{
 }
 
 func LoadConfig() (*Config, error) {
+	defaultCfg := cloneDefaultConfig()
+
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return &defaultConfig, nil
+		return defaultCfg, fmt.Errorf("failed to determine home directory: %w", err)
 	}
 
 	configPath := filepath.Join(homeDir, ".recaller.yaml")
 
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return &defaultConfig, nil
+		return defaultCfg, nil
+	} else if err != nil {
+		return defaultCfg, fmt.Errorf("failed to read config file info: %w", err)
 	}
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		return &defaultConfig, nil
+		return defaultCfg, fmt.Errorf("failed to read config file: %w", err)
 	}
 
 	var config Config
-	err = yaml.Unmarshal(data, &config)
-	if err != nil {
-		return &defaultConfig, nil
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return defaultCfg, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
 	return &config, nil

@@ -102,7 +102,7 @@ Copyright @ Naren Yellavula (Please give us a star ⭐ here: https://github.com/
 			config, err := LoadConfig()
 			if err != nil {
 				log.Printf("Failed to load configuration: %v. Using default settings.", err)
-				config = &defaultConfig
+				config = cloneDefaultConfig()
 			}
 
 			if !config.Filesystem.Enabled {
@@ -156,7 +156,7 @@ Copyright @ Naren Yellavula (Please give us a star ⭐ here: https://github.com/
 			config, err := LoadConfig()
 			if err != nil {
 				log.Printf("Failed to load configuration: %v. Using default settings.", err)
-				config = &defaultConfig
+				config = cloneDefaultConfig()
 			}
 
 			if !config.Filesystem.Enabled {
@@ -262,7 +262,7 @@ Copyright @ Naren Yellavula (Please give us a star ⭐ here: https://github.com/
 			config, err := LoadConfig()
 			if err != nil {
 				log.Printf("Failed to load configuration: %v. Using default settings.", err)
-				config = &defaultConfig
+				config = cloneDefaultConfig()
 			}
 
 			if !config.Filesystem.Enabled {
@@ -412,7 +412,7 @@ Copyright @ Naren Yellavula (Please give us a star ⭐ here: https://github.com/
 			config, err := LoadConfig()
 			if err != nil {
 				log.Printf("Failed to load configuration: %v. Using default settings.", err)
-				config = &defaultConfig
+				config = cloneDefaultConfig()
 			}
 
 			if !config.Filesystem.Enabled {

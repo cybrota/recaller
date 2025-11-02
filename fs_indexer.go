@@ -167,18 +167,27 @@ func (fi *FilesystemIndexer) bytesToPath(bytes [MaxPathLength]byte) string {
 	return string(bytes[:end])
 }
 
-func (fi *FilesystemIndexer) AddPath(path string, timestamp time.Time) (bool, int32) {
+func (fi *FilesystemIndexer) AddPath(path string, eventTime time.Time, incrementAccess bool) (bool, int32) {
 	existed := fi.bloomFilter.TestString(path)
 
 	fi.bloomFilter.AddString(path)
-	fi.countMinSketch.Add(path, 1)
+	if incrementAccess {
+		fi.countMinSketch.Add(path, 1)
+	}
 	fi.isDirty = true
 
 	if existed {
 		// Update existing record
 		if idx, found := fi.pathIndex[path]; found {
-			fi.pathRecords[idx].Timestamp = timestamp.Unix()
-			fi.pathRecords[idx].AccessCount++
+			if incrementAccess {
+				fi.pathRecords[idx].AccessCount++
+				fi.pathRecords[idx].Timestamp = eventTime.Unix()
+				return true, fi.pathRecords[idx].AccessCount
+			}
+
+			if !eventTime.IsZero() {
+				fi.pathRecords[idx].Timestamp = eventTime.Unix()
+			}
 			return true, fi.pathRecords[idx].AccessCount
 		}
 	}
@@ -205,9 +214,25 @@ func (fi *FilesystemIndexer) AddPath(path string, timestamp time.Time) (bool, in
 
 	record := PathRecord{
 		Path:        fi.pathToBytes(path),
-		Timestamp:   timestamp.Unix(),
-		AccessCount: fi.countMinSketch.Estimate(path),
+		Timestamp:   0,
+		AccessCount: 0,
 		Flags:       flags,
+	}
+
+	if !eventTime.IsZero() {
+		record.Timestamp = eventTime.Unix()
+	}
+
+	if incrementAccess {
+		if record.Timestamp == 0 {
+			record.Timestamp = time.Now().Unix()
+		}
+		estimate := fi.countMinSketch.Estimate(path)
+		if estimate == 0 {
+			record.AccessCount = 1
+		} else {
+			record.AccessCount = estimate
+		}
 	}
 
 	fi.pathIndex[path] = len(fi.pathRecords)
@@ -293,7 +318,7 @@ func (fi *FilesystemIndexer) IndexDirectoryWithProgress(rootPath string, showPro
 			return errors.New("max indexed files limit reached")
 		}
 
-		fi.AddPath(path, time.Now())
+		fi.AddPath(path, time.Time{}, false)
 		count++
 
 		// Update progress bar
@@ -379,7 +404,7 @@ func (fi *FilesystemIndexer) IndexDirectoriesWithProgress(rootPaths []string, sh
 				return errors.New("max indexed files limit reached")
 			}
 
-			fi.AddPath(path, time.Now())
+			fi.AddPath(path, time.Time{}, false)
 			count++
 			totalCount++
 
@@ -590,11 +615,15 @@ func (fi *FilesystemIndexer) SearchFiles(query string, enableFuzzy bool) []Ranke
 func (fi *FilesystemIndexer) getFileMetadata(path string) (FileMetadata, error) {
 	if idx, found := fi.pathIndex[path]; found && idx < len(fi.pathRecords) {
 		record := fi.pathRecords[idx]
-		timestamp := time.Unix(record.Timestamp, 0)
+		var timestamp *time.Time
+		if record.Timestamp > 0 {
+			t := time.Unix(record.Timestamp, 0)
+			timestamp = &t
+		}
 
 		metadata := FileMetadata{
 			Path:        path,
-			Timestamp:   &timestamp,
+			Timestamp:   timestamp,
 			AccessCount: record.AccessCount,
 			IsDirectory: (record.Flags & FlagIsDirectory) != 0,
 			IsHidden:    (record.Flags & FlagIsHidden) != 0,

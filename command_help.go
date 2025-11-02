@@ -15,6 +15,8 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/cybrota/recaller/strategies"
 	"github.com/mattn/go-shellwords"
 )
@@ -42,7 +44,7 @@ func getCommandHelp(cmdParts []string) (string, error) {
 func splitCommand(fullCmd string) ([]string, error) {
 	args, err := shellwords.Parse(fullCmd)
 	if err != nil {
-		return nil, nil
+		return nil, fmt.Errorf("unable to parse command: %w", err)
 	}
 	return args, nil
 }

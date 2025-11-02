@@ -216,19 +216,36 @@ func readHistoryAndPopulateTree(tree *AVLTree) error {
 
 	// Optimize: Pre-allocate frequency map with estimated capacity
 	// and track most recent timestamp per command for efficiency
-	freqMap := make(map[string]int, len(history)/4) // Estimate unique commands
-	lastTimestamp := make(map[string]*time.Time, len(history)/4)
+	capacity := len(history) / 4
+	if capacity < 1 {
+		capacity = 1
+	}
+	freqMap := make(map[string]int, capacity) // Estimate unique commands
+	lastTimestamp := make(map[string]*time.Time, capacity)
+	fallbackBase := time.Now()
+	fallbackCounter := 0
 
 	// Process history in reverse to get most recent timestamps efficiently
 	for i := len(history) - 1; i >= 0; i-- {
 		hist := history[i]
-		if hist.Timestamp != nil && hist.Command != "" {
-			// Update frequency count
-			freqMap[hist.Command]++
+		command := strings.TrimSpace(hist.Command)
+		if command == "" {
+			continue
+		}
 
-			// Keep only the most recent timestamp per command
-			if lastTimestamp[hist.Command] == nil || hist.Timestamp.After(*lastTimestamp[hist.Command]) {
-				lastTimestamp[hist.Command] = hist.Timestamp
+		// Update frequency count
+		freqMap[command]++
+
+		switch {
+		case hist.Timestamp != nil:
+			if lastTimestamp[command] == nil || hist.Timestamp.After(*lastTimestamp[command]) {
+				lastTimestamp[command] = hist.Timestamp
+			}
+		default:
+			if lastTimestamp[command] == nil {
+				fallbackCounter++
+				fallback := fallbackBase.Add(-time.Duration(fallbackCounter) * time.Second)
+				lastTimestamp[command] = &fallback
 			}
 		}
 	}
