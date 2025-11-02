@@ -114,18 +114,23 @@ func sendToTerminalMacOS(command string) error {
 
 // sendToTerminalLinux sends command using Linux terminal emulators
 func sendToTerminalLinux(command string) error {
+	wrappedCommand := command
+	if !strings.HasSuffix(strings.TrimSpace(command), "exec bash") {
+		wrappedCommand = fmt.Sprintf("%s; exec bash", command)
+	}
+
 	terminals := []struct {
 		name string
 		cmd  []string
 	}{
-		{"gnome-terminal", []string{"gnome-terminal", "--tab", "--", "bash", "-c", command + "; exec bash"}},
-		{"konsole", []string{"konsole", "--new-tab", "-e", "bash", "-c", command + "; exec bash"}},
-		{"xfce4-terminal", []string{"xfce4-terminal", "--tab", "-e", "bash -c '" + command + "; exec bash'"}},
-		{"tilix", []string{"tilix", "-a", "session-add-down", "-e", "bash -c '" + command + "; exec bash'"}},
-		{"terminator", []string{"terminator", "--new-tab", "-e", "bash -c '" + command + "; exec bash'"}},
-		{"alacritty", []string{"alacritty", "-e", "bash", "-c", command + "; exec bash"}},
-		{"kitty", []string{"kitty", "--tab", "bash", "-c", command + "; exec bash"}},
-		{"xterm", []string{"xterm", "-e", "bash", "-c", command + "; exec bash"}},
+		{"gnome-terminal", []string{"gnome-terminal", "--tab", "--", "bash", "-lc", wrappedCommand}},
+		{"konsole", []string{"konsole", "--new-tab", "-e", "bash", "-lc", wrappedCommand}},
+		{"xfce4-terminal", []string{"xfce4-terminal", "--tab", "-x", "bash", "-lc", wrappedCommand}},
+		{"tilix", []string{"tilix", "-a", "session-add-down", "-e", "bash", "-lc", wrappedCommand}},
+		{"terminator", []string{"terminator", "--new-tab", "-e", "bash", "-lc", wrappedCommand}},
+		{"alacritty", []string{"alacritty", "-e", "bash", "-lc", wrappedCommand}},
+		{"kitty", []string{"kitty", "--tab", "bash", "-lc", wrappedCommand}},
+		{"xterm", []string{"xterm", "-e", "bash", "-lc", wrappedCommand}},
 	}
 
 	for _, terminal := range terminals {
@@ -157,16 +162,16 @@ func openFileWithDefaultApp(path string) error {
 // ============================================================================
 
 func GetOrfillCache(c *cache.Cache, cmd string) string {
-	help, err := splitCommand(cmd)
+	parts, err := splitCommand(cmd)
 	if err != nil {
-		return ""
+		return fmt.Sprintf("Failed to parse command: %v", err)
 	}
 
 	page := GetHelpPage(c, cmd)
 	var helpTxt string
 
 	if page == "" {
-		helpTxt, err = getCommandHelp(help)
+		helpTxt, err = getCommandHelp(parts)
 		if err != nil {
 			helpTxt = fmt.Sprintf("Relax and take a deep breath.\n%s", err.Error())
 		}
@@ -650,6 +655,8 @@ func (state *filesystemSearchState) updateMetadataDisplay(metadataList *widgets.
 
 	if file.Metadata.Timestamp != nil {
 		metadata = append(metadata, fmt.Sprintf("🕒 Last Accessed: %s", file.Metadata.Timestamp.Format("2006-01-02 15:04:05")))
+	} else {
+		metadata = append(metadata, "🕒 Last Accessed: Never")
 	}
 	metadata = append(metadata, fmt.Sprintf("📊 Access Count: %d", file.Metadata.AccessCount))
 	metadata = append(metadata, fmt.Sprintf("⭐ Score: %.2f", file.Score))
@@ -867,7 +874,7 @@ func runFilesystemSearch(fsIndexer *FilesystemIndexer, config *Config) {
 		case "<Enter>":
 			if len(state.currentFiles) > state.selectedIndex && state.selectedIndex >= 0 {
 				filePath := state.currentFiles[state.selectedIndex].Path
-				fsIndexer.AddPath(filePath, time.Now())
+				fsIndexer.AddPath(filePath, time.Now(), true)
 
 				if err := openFileWithDefaultApp(filePath); err != nil {
 					log.Printf("Failed to open file: %v", err)

@@ -15,9 +15,6 @@
 package main
 
 import (
-	"errors"
-	"fmt"
-	"log"
 	"sort"
 	"strings"
 	"time"
@@ -313,25 +310,19 @@ func (tree *AVLTree) SearchPrefixMostRecent(prefix string) []*AVLNode {
 	return matches
 }
 
-func calculateScore(metadata CommandMetadata) (float64, error) {
-	if metadata.Timestamp == nil {
-		fmt.Println(metadata)
-		return 0, errors.New("timestamp is nil, cannot calculate score")
-	}
-	now := time.Now()
-	// Calculate time delta in hours for scoring
-	timeDelta := now.Sub(*metadata.Timestamp).Hours()
-
-	// Score components:
-	// - Frequency: Linear, to encourage repeated commands
-	// - Recency (Time): Inverse exponential, to heavily favor recent commands
+func calculateScore(metadata CommandMetadata) float64 {
 	frequencyScore := float64(metadata.Frequency)
-	recencyScore := 1 / (timeDelta + 1) // Add 1 to avoid division by zero
 
-	// Combine scores with a simple weighted average (adjust weights as needed)
-	score := (0.6 * frequencyScore) + (0.4 * recencyScore)
+	var recencyScore float64
+	if metadata.Timestamp != nil && !metadata.Timestamp.IsZero() {
+		timeDelta := time.Since(*metadata.Timestamp).Hours()
+		if timeDelta < 0 {
+			timeDelta = 0
+		}
+		recencyScore = 1 / (timeDelta + 1) // Add 1 to avoid division by zero
+	}
 
-	return score, nil
+	return (0.6 * frequencyScore) + (0.4 * recencyScore)
 }
 
 // fuzzySearch performs in-order traversal and finds commands containing the query as substring
@@ -375,15 +366,9 @@ func SearchWithRanking(tree *AVLTree, query string, enableFuzzing bool) []Ranked
 		command := node.Key
 		metadata := node.Value
 
-		score, err := calculateScore(metadata)
-		if err != nil {
-			log.Printf("Error calculating score for command %s: %v", command, err)
-			continue // Skip this command instead of crashing
-		}
-
 		rankedCommand := RankedCommand{
 			Command:  command,
-			Score:    score,
+			Score:    calculateScore(metadata),
 			Metadata: metadata, // Reuse existing metadata to avoid copying
 		}
 
