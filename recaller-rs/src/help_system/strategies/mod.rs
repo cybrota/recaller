@@ -1,0 +1,23 @@
+mod aws;
+mod cargo;
+mod docker;
+mod generic;
+mod git;
+mod go_cmd;
+mod kubectl;
+mod man;
+mod npm;
+mod tldr;
+mod utils;
+
+pub use aws::AwsHelpStrategy;
+pub use cargo::CargoHelpStrategy;
+pub use docker::DockerHelpStrategy;
+pub use generic::GenericHelpStrategy;
+pub use git::GitHelpStrategy;
+pub use go_cmd::GoHelpStrategy;
+pub use kubectl::KubectlHelpStrategy;
+pub use man::ManPageStrategy;
+pub use npm::NpmHelpStrategy;
+pub use tldr::TldrStrategy;
+pub use utils::remove_overstrike;
