@@ -3,5 +3,6 @@ recaller
 main
 # Added by goreleaser init:
 dist/
+.DS_Store
 .env
 .key
